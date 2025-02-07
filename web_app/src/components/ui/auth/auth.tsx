@@ -7,10 +7,10 @@ import { useRouter } from 'next/navigation';
 export default function Login() {
   const { login, logout, user, ready, authenticated } = usePrivy();
 
+  const router = useRouter(); // For pasing build
+  
   if (!ready) return <p>Loading...</p>;
   console.log(user);
-  const router = useRouter();
-
 
   // if (ready && !authenticated) {
   //   router.push('/login');
