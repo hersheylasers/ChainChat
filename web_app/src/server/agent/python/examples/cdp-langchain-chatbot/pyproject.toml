@@ -10,9 +10,13 @@ package-mode = false
 python = "^3.10"
 python-dotenv = "^1.0.1"
 cdp-langchain = "^0.0.13"
-sounddevice = "^0.5.1"
+sounddevice = "^0.4.6"
 langchain-community = "^0.3.16"
 soundfile = "^0.13.1"
+pydub = "^0.25.1"
+textual = "^0.52.1"
+pyaudio = "^0.2.14"
+
 
 [build-system]
 requires = ["poetry-core"]

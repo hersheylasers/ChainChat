@@ -2,14 +2,16 @@ import os
 import sys
 import time
 import asyncio
-import sounddevice as sd
-import soundfile as sf
+import base64
 import numpy as np
-import wave
+from textual import events
+from textual.app import App, ComposeResult
+from textual.widgets import Static, RichLog
+from textual.reactive import reactive
+from textual.containers import Container
 
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
-
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -19,97 +21,233 @@ from langgraph.prebuilt import create_react_agent
 from cdp_langchain.agent_toolkits import CdpToolkit
 from cdp_langchain.utils import CdpAgentkitWrapper
 
+# Import audio utilities
+from audio_util import AudioPlayerAsync, SAMPLE_RATE, CHANNELS
+
 # Configure a file to persist the agent's CDP MPC Wallet Data.
 wallet_data_file = "wallet_data.txt"
-
-# Audio configuration
-SAMPLE_RATE = 16000  # Hz
-CHANNELS = 1
-TEMP_AUDIO_FILE = "temp_recording.wav"
 
 load_dotenv()
 
 
-def test_microphone(duration=3):
-    """Test microphone by recording and playing back audio."""
-    print(f"\nTesting microphone - Recording for {duration} seconds...")
+class AudioStatusIndicator(Static):
+    """A widget that shows the current audio recording status."""
 
-    # Record audio
-    recording = sd.rec(
-        int(duration * SAMPLE_RATE),
-        samplerate=SAMPLE_RATE,
-        channels=CHANNELS,
-        dtype=np.float32,
-    )
-    sd.wait()  # Wait until recording is finished
-    print("Recording finished!")
+    is_recording = reactive(False)
+    connection_status = reactive("Connecting to OpenAI...")
+    last_error = reactive("")
 
-    # Save recording to WAV file
-    with wave.open(TEMP_AUDIO_FILE, "wb") as wf:
-        wf.setnchannels(CHANNELS)
-        wf.setsampwidth(2)  # 2 bytes for 16-bit audio
-        wf.setframerate(SAMPLE_RATE)
-        wf.writeframes((recording * 32767).astype(np.int16).tobytes())
+    def render(self) -> str:
+        if self.last_error:
+            return f"❌ Error: {self.last_error}"
 
-    print("\nPlaying back recording...")
-    # Play back the recording
-    data, fs = sf.read(TEMP_AUDIO_FILE, dtype="float32")
-    sd.play(data, fs)
-    sd.wait()  # Wait until playback is finished
-
-    # Clean up
-    os.remove(TEMP_AUDIO_FILE)
-
-    print("\nMicrophone test complete!")
-    return True
-
-
-async def process_realtime_input(text_input=None, audio_input=None):
-    """Process input using OpenAI's Realtime API."""
-    client = AsyncOpenAI()
-    modalities = []
-
-    if text_input:
-        modalities.append("text")
-    if audio_input:
-        modalities.append("audio")
-
-    async with client.beta.realtime.connect(
-        model="gpt-4o-realtime-preview"
-    ) as connection:
-        await connection.session.update(session={"modalities": modalities})
-
-        # Create conversation item based on input type
-        content = []
-        if text_input:
-            content.append({"type": "input_text", "text": text_input})
-        if audio_input:
-            content.append(
-                {"type": "input_audio", "audio": audio_input, "sample_rate": 16000}
-            )
-
-        await connection.conversation.item.create(
-            item={
-                "type": "message",
-                "role": "user",
-                "content": content,
-            }
+        status = (
+            "🔴 Recording... (Press K to stop)"
+            if self.is_recording
+            else "⚪ Press K to start recording (Q to quit)"
         )
-        await connection.response.create()
+        return f"{self.connection_status}\n{status}"
 
-        response_text = ""
-        async for event in connection:
-            if event.type == "response.text.delta":
-                response_text += event.delta
-                print(event.delta, flush=True, end="")
 
-            elif event.type == "response.text.done":
-                print()
+class AudioChatApp(App):
+    CSS = """
+    Screen {
+        background: #1a1b26;
+    }
 
-            elif event.type == "response.done":
-                break
+    Container {
+        border: double rgb(91, 164, 91);
+    }
 
-        return response_text
+    #bottom-pane {
+        width: 100%;
+        height: 82%;
+        border: round rgb(205, 133, 63);
+        content-align: center middle;
+    }
+
+    #status-indicator {
+        height: 3;
+        content-align: center middle;
+        background: #2a2b36;
+        border: solid rgb(91, 164, 91);
+        margin: 1 1;
+    }
+
+    Static {
+        color: white;
+    }
+    """
+
+    def __init__(self, agent_executor, config):
+        super().__init__()
+        self.agent_executor = agent_executor
+        self.config = config
+        self.client = AsyncOpenAI()
+        self.audio_player = AudioPlayerAsync()
+        self.should_send_audio = asyncio.Event()
+        self.connected = asyncio.Event()
+        self.connection = None
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield AudioStatusIndicator(id="status-indicator")
+            yield RichLog(id="bottom-pane", wrap=True, highlight=True, markup=True)
+
+    async def on_mount(self) -> None:
+        self.run_worker(self.handle_realtime_connection())
+        self.run_worker(self.send_mic_audio())
+
+    async def handle_realtime_connection(self) -> None:
+        status_indicator = self.query_one(AudioStatusIndicator)
+        bottom_pane = self.query_one("#bottom-pane", RichLog)
+
+        try:
+            if not os.getenv("OPENAI_API_KEY"):
+                status_indicator.last_error = "OPENAI_API_KEY not found in environment"
+                return
+
+            status_indicator.connection_status = "Connecting to OpenAI..."
+            bottom_pane.write("[yellow]Initializing connection...[/yellow]\n")
+
+            async with self.client.beta.realtime.connect(
+                model="gpt-4o-realtime-preview"
+            ) as conn:
+                bottom_pane.write(
+                    "[yellow]Setting up audio configuration...[/yellow]\n"
+                )
+                await conn.session.update(
+                    session={
+                        "audio": {"sample_rate": SAMPLE_RATE},
+                        "turn_detection": {"type": "server_vad"},
+                    }
+                )
+
+                self.connection = conn
+                self.connected.set()
+                status_indicator.connection_status = "Connected ✓"
+                bottom_pane.write("[green]Connected to OpenAI API[/green]\n")
+
+                acc_text = ""
+                async for event in conn:
+                    bottom_pane.write(f"[dim]Event: {event.type}[/dim]\n")
+
+                    if event.type == "response.text.delta":
+                        acc_text += event.delta
+                        bottom_pane.clear()
+                        bottom_pane.write("[blue]Transcription:[/blue]\n")
+                        bottom_pane.write(acc_text + "\n")
+
+                    elif event.type == "response.text.done":
+                        if acc_text.strip():  # Only process if we have text
+                            bottom_pane.write("\n[green]Agent Response:[/green]\n")
+                            # Process through agent
+                            for chunk in self.agent_executor.stream(
+                                {"messages": [HumanMessage(content=acc_text)]},
+                                self.config,
+                            ):
+                                if "agent" in chunk:
+                                    bottom_pane.write(
+                                        chunk["agent"]["messages"][0].content
+                                    )
+                                    bottom_pane.write("\n-------------------\n")
+                            acc_text = ""  # Reset for next interaction
+        except Exception as e:
+            error_msg = f"Connection error: {str(e)}"
+            status_indicator.last_error = error_msg
+            bottom_pane.write(f"[red]{error_msg}[/red]\n")
+
+    async def send_mic_audio(self) -> None:
+        import sounddevice as sd
+
+        bottom_pane = self.query_one("#bottom-pane", RichLog)
+
+        # Wait for connection to be established
+        try:
+            await asyncio.wait_for(self.connected.wait(), timeout=10.0)
+            if not self.connection:
+                bottom_pane.write("[red]Error: Could not establish connection[/red]\n")
+                return
+        except asyncio.TimeoutError:
+            bottom_pane.write("[red]Error: Connection timeout[/red]\n")
+            return
+
+        sent_audio = False
+        read_size = int(SAMPLE_RATE * 0.02)
+
+        stream = sd.InputStream(
+            channels=CHANNELS,
+            samplerate=SAMPLE_RATE,
+            dtype="int16",
+        )
+        stream.start()
+
+        status_indicator = self.query_one(AudioStatusIndicator)
+
+        try:
+            while True:
+                if stream.read_available < read_size:
+                    await asyncio.sleep(0)
+                    continue
+
+                if self.should_send_audio.is_set():
+                    status_indicator.is_recording = True
+                    data, _ = stream.read(read_size)
+
+                    if not sent_audio:
+                        bottom_pane.write(
+                            "[yellow]Starting new recording session...[/yellow]\n"
+                        )
+                        await self.connection.send({"type": "response.cancel"})
+                        sent_audio = True
+
+                    # Send audio data in the correct format for the API
+                    await self.connection.send(
+                        {
+                            "type": "input_audio_buffer.append",
+                            "audio": base64.b64encode(data).decode("utf-8"),
+                        }
+                    )
+                else:
+                    if sent_audio:
+                        bottom_pane.write("[yellow]Processing recording...[/yellow]\n")
+                        # Signal end of audio input
+                        await self.connection.send(
+                            {"type": "input_audio_buffer.commit"}
+                        )
+                        await self.connection.send({"type": "response.create"})
+                        sent_audio = False
+                    status_indicator.is_recording = False
+
+                await asyncio.sleep(0)
+        except Exception as e:
+            print(f"Error in send_mic_audio: {e}")
+        finally:
+            stream.stop()
+            stream.close()
+
+    async def on_key(self, event: events.Key) -> None:
+        """Handle key press events."""
+        if event.key == "q":
+            self.exit()
+            return
+
+        if event.key == "k":
+            status_indicator = self.query_one(AudioStatusIndicator)
+            if status_indicator.is_recording:
+                self.should_send_audio.clear()
+                status_indicator.is_recording = False
+            else:
+                self.should_send_audio.set()
+                status_indicator.is_recording = True
+
+
+def test_microphone():
+    """Test microphone by launching the audio chat app briefly."""
+    agent_executor, config = initialize_agent()
+    app = AudioChatApp(agent_executor, config)
+    app.run()
+    return True
 
 
 def initialize_agent():
@@ -212,65 +350,11 @@ def run_chat_mode(agent_executor, config):
             sys.exit(0)
 
 
-# Audio Mode
 async def run_audio_mode(agent_executor, config):
     """Run the agent interactively using OpenAI's Realtime API for audio."""
-    print("Starting audio mode... Type 'exit' to end or press Enter to speak")
-    print("First, let's test your microphone...")
-
-    if not test_microphone():
-        print("Microphone test failed. Please check your audio settings.")
-        return
-
-    while True:
-        try:
-            command = input("\nPress Enter to start speaking (or type 'exit' to end): ")
-            if command.lower() == "exit":
-                break
-
-            print("Listening... Speak now!")
-            # Record audio
-            recording = sd.rec(
-                int(5 * SAMPLE_RATE),  # 5 seconds of audio
-                samplerate=SAMPLE_RATE,
-                channels=CHANNELS,
-                dtype=np.float32,
-            )
-            sd.wait()
-
-            # Save to WAV file
-            with wave.open(TEMP_AUDIO_FILE, "wb") as wf:
-                wf.setnchannels(CHANNELS)
-                wf.setsampwidth(2)
-                wf.setframerate(SAMPLE_RATE)
-                wf.writeframes((recording * 32767).astype(np.int16).tobytes())
-
-            # Process audio with OpenAI's Realtime API
-            with open(TEMP_AUDIO_FILE, "rb") as audio_file:
-                response_text = await process_realtime_input(
-                    audio_input=audio_file.read()
-                )
-
-            # Clean up
-            os.remove(TEMP_AUDIO_FILE)
-
-            # Process the transcribed text through the agent
-            for chunk in agent_executor.stream(
-                {"messages": [HumanMessage(content=response_text)]}, config
-            ):
-                if "agent" in chunk:
-                    print(chunk["agent"]["messages"][0].content)
-                elif "tools" in chunk:
-                    print(chunk["tools"]["messages"][0].content)
-                print("-------------------")
-
-        except KeyboardInterrupt:
-            print("Goodbye Agent!")
-            try:
-                os.remove(TEMP_AUDIO_FILE)
-            except OSError:
-                pass
-            sys.exit(0)
+    print("Starting audio mode... Press K to start/stop recording, Q to quit")
+    app = AudioChatApp(agent_executor, config)
+    await app.run_async()
 
 
 # Mode Selection

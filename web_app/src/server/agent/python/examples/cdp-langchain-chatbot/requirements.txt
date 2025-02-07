@@ -86,3 +86,7 @@ web3==7.7.0
 websockets==13.1
 yarl==1.18.3
 zstandard==0.23.0
+pydub==0.25.1
+pyaudio==0.2.14
+sounddevice==0.4.6
+textual==0.52.1
