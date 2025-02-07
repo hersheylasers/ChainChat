@@ -1,77 +1,81 @@
 import os
 import sys
 import time
-
-import sounddevice as sd
-import soundfile as sf
-import numpy as np
+import asyncio
 from pathlib import Path
 
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 from langchain_core.messages import HumanMessage
-from langchain_openai import (
-    ChatOpenAI,
-)
+from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import create_react_agent
 
 # Import CDP Agentkit Langchain Extension.
 from cdp_langchain.agent_toolkits import CdpToolkit
 from cdp_langchain.utils import CdpAgentkitWrapper
-from langchain.agents import load_tools
-from langchain.document_loaders.generic import GenericLoader
 
 # Configure a file to persist the agent's CDP MPC Wallet Data.
-wallet_data_file = "wallet_data.txt"  # Wallet data is saved here. Can I use Privy or has to be coinbase?
-
-# Audio configuration
-SAMPLE_RATE = 16000  # Hz
-CHANNELS = 1
-TEMP_AUDIO_FILE = "temp_recording.wav"
+wallet_data_file = "wallet_data.txt"
 
 load_dotenv()
 
 
-def record_audio(duration=5):
-    """Record audio from microphone."""
-    print(f"\nRecording for {duration} seconds... Speak now!")
+async def process_realtime_input(text_input=None, audio_input=None):
+    """Process input using OpenAI's Realtime API."""
+    client = AsyncOpenAI()
+    modalities = []
 
-    # Record audio
-    recording = sd.rec(
-        int(duration * SAMPLE_RATE),
-        samplerate=SAMPLE_RATE,
-        channels=CHANNELS,
-        dtype=np.float32,
-    )
-    sd.wait()  # Wait until recording is finished
+    if text_input:
+        modalities.append("text")
+    if audio_input:
+        modalities.append("audio")
 
-    # Save to temporary file
-    sf.write(TEMP_AUDIO_FILE, recording, SAMPLE_RATE)
-    print("Recording finished!")
-    return TEMP_AUDIO_FILE
+    async with client.beta.realtime.connect(
+        model="gpt-4o-realtime-preview"
+    ) as connection:
+        await connection.session.update(session={"modalities": modalities})
 
+        # Create conversation item based on input type
+        content = []
+        if text_input:
+            content.append({"type": "input_text", "text": text_input})
+        if audio_input:
+            content.append(
+                {"type": "input_audio", "audio": audio_input, "sample_rate": 16000}
+            )
 
-def transcribe_audio(audio_file):
-    """Transcribe audio using Whisper."""
-    model = "gpt-4o-realtime-preview-2024-12-17"
-    result = model.transcribe(audio_file)
+        await connection.conversation.item.create(
+            item={
+                "type": "message",
+                "role": "user",
+                "content": content,
+            }
+        )
+        await connection.response.create()
 
-    return result["text"]
+        response_text = ""
+        async for event in connection:
+            if event.type == "response.text.delta":
+                response_text += event.delta
+                print(event.delta, flush=True, end="")
+
+            elif event.type == "response.text.done":
+                print()
+
+            elif event.type == "response.done":
+                break
+
+        return response_text
 
 
 def initialize_agent():
     """Initialize the agent with CDP Agentkit."""
-    # Initialize LLM. # GAIA node not working well with tools
-    # llm = ChatOpenAI(
-    #     model="Llama-3-8B-Instruct",
-    #     api_key=os.getenv("GAIA_API_KEY"),
-    #     base_url="https://0x46c513cb9063f606948c07bba87cf9bd6001f3f0.gaia.domains/v1",
-    # )
+    # Initialize LLM.
     llm = ChatOpenAI()
 
     wallet_data = None
-
     if os.path.exists(wallet_data_file):
         with open(wallet_data_file) as f:
             wallet_data = f.read()
@@ -79,25 +83,19 @@ def initialize_agent():
     # Configure CDP Agentkit Langchain Extension.
     values = {}
     if wallet_data is not None:
-        # If there is a persisted agentic wallet, load it and pass to the CDP Agentkit Wrapper.
         values = {"cdp_wallet_data": wallet_data}
 
     agentkit = CdpAgentkitWrapper(**values)
-
-    # persist the agent's CDP MPC Wallet Data.
     wallet_data = agentkit.export_wallet()
     with open(wallet_data_file, "w") as f:
         f.write(wallet_data)
 
-    # Initialize CDP Agentkit Toolkit and get tools.
     cdp_toolkit = CdpToolkit.from_cdp_agentkit_wrapper(agentkit)
     tools = cdp_toolkit.get_tools()
 
-    # Store buffered conversation history in memory.
     memory = MemorySaver()
     config = {"configurable": {"thread_id": "CDP Agentkit Chatbot Example!"}}
 
-    # Create ReAct Agent using the LLM and CDP Agentkit tools.
     return (
         create_react_agent(
             llm,
@@ -174,32 +172,24 @@ def run_chat_mode(agent_executor, config):
             sys.exit(0)
 
 
-# Audio Chat Mode
-def run_audio_mode(agent_executor, config):
-    """Run the agent interactively based on audio input."""
-    print(
-        "Starting audio mode... Type 'exit' to end or press Enter to start recording."
-    )
-
-    # Create directory for temporary audio files if it doesn't exist
-    Path(TEMP_AUDIO_FILE).parent.mkdir(parents=True, exist_ok=True)
+# Audio Mode
+async def run_audio_mode(agent_executor, config):
+    """Run the agent interactively using OpenAI's Realtime API for audio."""
+    print("Starting audio mode... Type 'exit' to end or press Enter to speak")
 
     while True:
         try:
-            command = input(
-                "\nPress Enter to start recording (or type 'exit' to end): "
-            )
+            command = input("\nPress Enter to start speaking (or type 'exit' to end): ")
             if command.lower() == "exit":
                 break
 
-            # Record and transcribe audio
-            audio_file = record_audio()
-            transcribed_text = transcribe_audio(audio_file)
-            print(f"\nTranscribed: {transcribed_text}")
+            print("Listening... Speak now!")
+            # Use OpenAI's Realtime API for audio input
+            response_text = await process_realtime_input(audio_input=True)
 
-            # Run agent with the transcribed input
+            # Process the transcribed text through the agent
             for chunk in agent_executor.stream(
-                {"messages": [HumanMessage(content=transcribed_text)]}, config
+                {"messages": [HumanMessage(content=response_text)]}, config
             ):
                 if "agent" in chunk:
                     print(chunk["agent"]["messages"][0].content)
@@ -207,19 +197,8 @@ def run_audio_mode(agent_executor, config):
                     print(chunk["tools"]["messages"][0].content)
                 print("-------------------")
 
-            # Clean up temporary audio file
-            try:
-                os.remove(audio_file)
-            except:
-                pass
-
         except KeyboardInterrupt:
             print("Goodbye Agent!")
-            # Clean up temporary audio file
-            try:
-                os.remove(TEMP_AUDIO_FILE)
-            except:
-                pass
             sys.exit(0)
 
 
@@ -242,7 +221,7 @@ def choose_mode():
         print("Invalid choice. Please try again.")
 
 
-def main():
+async def main():
     """Start the chatbot agent."""
     agent_executor, config = initialize_agent()
 
@@ -252,9 +231,9 @@ def main():
     elif mode == "auto":
         run_autonomous_mode(agent_executor=agent_executor, config=config)
     elif mode == "audio":
-        run_audio_mode(agent_executor=agent_executor, config=config)
+        await run_audio_mode(agent_executor=agent_executor, config=config)
 
 
 if __name__ == "__main__":
     print("Starting Agent...")
-    main()
+    asyncio.run(main())
