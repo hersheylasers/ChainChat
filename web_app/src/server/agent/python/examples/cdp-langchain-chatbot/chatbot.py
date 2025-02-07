@@ -2,6 +2,11 @@ import os
 import sys
 import time
 
+import sounddevice as sd
+import soundfile as sf
+import numpy as np
+from pathlib import Path
+
 from dotenv import load_dotenv
 
 from langchain_core.messages import HumanMessage
@@ -14,21 +19,56 @@ from langgraph.prebuilt import create_react_agent
 # Import CDP Agentkit Langchain Extension.
 from cdp_langchain.agent_toolkits import CdpToolkit
 from cdp_langchain.utils import CdpAgentkitWrapper
+from langchain.agents import load_tools
+from langchain.document_loaders.generic import GenericLoader
 
 # Configure a file to persist the agent's CDP MPC Wallet Data.
 wallet_data_file = "wallet_data.txt"  # Wallet data is saved here. Can I use Privy or has to be coinbase?
 
+# Audio configuration
+SAMPLE_RATE = 16000  # Hz
+CHANNELS = 1
+TEMP_AUDIO_FILE = "temp_recording.wav"
+
 load_dotenv()
+
+
+def record_audio(duration=5):
+    """Record audio from microphone."""
+    print(f"\nRecording for {duration} seconds... Speak now!")
+
+    # Record audio
+    recording = sd.rec(
+        int(duration * SAMPLE_RATE),
+        samplerate=SAMPLE_RATE,
+        channels=CHANNELS,
+        dtype=np.float32,
+    )
+    sd.wait()  # Wait until recording is finished
+
+    # Save to temporary file
+    sf.write(TEMP_AUDIO_FILE, recording, SAMPLE_RATE)
+    print("Recording finished!")
+    return TEMP_AUDIO_FILE
+
+
+def transcribe_audio(audio_file):
+    """Transcribe audio using Whisper."""
+    model = "gpt-4o-realtime-preview-2024-12-17"
+    result = model.transcribe(audio_file)
+
+    return result["text"]
 
 
 def initialize_agent():
     """Initialize the agent with CDP Agentkit."""
-    # Initialize LLM.
-    llm = ChatOpenAI(
-        model="Llama-3.2-3B-Instruct",
-        api_key=GAIA_API_KEY,
-        base_url=GAIA_BASE_URL,
-    )
+    # Initialize LLM. # GAIA node not working well with tools
+    # llm = ChatOpenAI(
+    #     model="Llama-3-8B-Instruct",
+    #     api_key=os.getenv("GAIA_API_KEY"),
+    #     base_url="https://0x46c513cb9063f606948c07bba87cf9bd6001f3f0.gaia.domains/v1",
+    # )
+    llm = ChatOpenAI()
 
     wallet_data = None
 
@@ -51,9 +91,7 @@ def initialize_agent():
 
     # Initialize CDP Agentkit Toolkit and get tools.
     cdp_toolkit = CdpToolkit.from_cdp_agentkit_wrapper(agentkit)
-    tools = (
-        cdp_toolkit.get_tools()
-    )  # How do I get audio integration? I need the python code to access my microphone, record audio, and send it to GPT
+    tools = cdp_toolkit.get_tools()
 
     # Store buffered conversation history in memory.
     memory = MemorySaver()
@@ -137,18 +175,31 @@ def run_chat_mode(agent_executor, config):
 
 
 # Audio Chat Mode
-def run_audio_mode(agent_executor, config):  # We can make an audio chat mode
-    """Run the agent interactively based on user input."""
-    print("Starting audio mode... Type 'exit' to end.")
+def run_audio_mode(agent_executor, config):
+    """Run the agent interactively based on audio input."""
+    print(
+        "Starting audio mode... Type 'exit' to end or press Enter to start recording."
+    )
+
+    # Create directory for temporary audio files if it doesn't exist
+    Path(TEMP_AUDIO_FILE).parent.mkdir(parents=True, exist_ok=True)
+
     while True:
         try:
-            user_input = input("\nPrompt: ")
-            if user_input.lower() == "exit":
+            command = input(
+                "\nPress Enter to start recording (or type 'exit' to end): "
+            )
+            if command.lower() == "exit":
                 break
 
-            # Run agent with the user's input in chat mode
+            # Record and transcribe audio
+            audio_file = record_audio()
+            transcribed_text = transcribe_audio(audio_file)
+            print(f"\nTranscribed: {transcribed_text}")
+
+            # Run agent with the transcribed input
             for chunk in agent_executor.stream(
-                {"messages": [HumanMessage(content=user_input)]}, config
+                {"messages": [HumanMessage(content=transcribed_text)]}, config
             ):
                 if "agent" in chunk:
                     print(chunk["agent"]["messages"][0].content)
@@ -156,8 +207,19 @@ def run_audio_mode(agent_executor, config):  # We can make an audio chat mode
                     print(chunk["tools"]["messages"][0].content)
                 print("-------------------")
 
+            # Clean up temporary audio file
+            try:
+                os.remove(audio_file)
+            except:
+                pass
+
         except KeyboardInterrupt:
             print("Goodbye Agent!")
+            # Clean up temporary audio file
+            try:
+                os.remove(TEMP_AUDIO_FILE)
+            except:
+                pass
             sys.exit(0)
 
 
@@ -168,7 +230,7 @@ def choose_mode():
         print("\nAvailable modes:")
         print("1. chat    - Interactive chat mode")
         print("2. auto    - Autonomous action mode")
-        print("3. audio    - Autonomous action mode")
+        print("3. audio   - Voice input mode")
 
         choice = input("\nChoose a mode (enter number or name): ").lower().strip()
         if choice in ["1", "chat"]:
