@@ -4,7 +4,6 @@ import { PortfolioChart } from "./components/portfolio-chart"
 import { AssetBreakdown } from "./components/asset-breakdown"
 import { PerformanceInsights } from "./components/performance-insights"
 import { TransactionsTable } from "./components/transactions-table"
-import { Sidebar } from "./components/sidebar"
 
 const mockAssets = [
   {
@@ -29,7 +28,6 @@ const mockAssets = [
 export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-[#000814] text-white">
-      <Sidebar />
       <main className="pl-16 p-6">
         <h1 className="text-2xl font-bold mb-6">My Portfolio</h1>
         <div className="grid gap-6 grid-cols-1 xl:grid-cols-3">
