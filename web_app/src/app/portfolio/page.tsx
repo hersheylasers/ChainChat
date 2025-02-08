@@ -52,13 +52,13 @@ const mockAssets = [
 
 export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-[#000814] text-white">
+    <div className="min-h-screen">
       <main className="pl-16 p-6">
         <h1 className="text-2xl font-bold mb-6">My Portfolio</h1>
         <div className="grid gap-6 grid-cols-1 xl:grid-cols-3">
-          <Card className="bg-black/40 border-gray-800 xl:col-span-2">
+          <Card className=" xl:col-span-2">
             <CardHeader>
-              <CardTitle className="text-sm font-normal text-gray-400">Total Portfolio Value</CardTitle>
+              <CardTitle className="text-sm font-normal">Total Portfolio Value</CardTitle>
               <div className="mt-2">
                 <div className="text-3xl font-bold">$63,313.63</div>
                 <div className="text-green-500 text-sm">+1.41%</div>
@@ -68,7 +68,7 @@ export default function DashboardPage() {
               <PortfolioChart />
             </CardContent>
           </Card>
-          <Card className="bg-black/40 border-gray-800">
+          <Card className="">
             <CardHeader>
               <CardTitle>Asset Breakdown</CardTitle>
             </CardHeader>
@@ -76,13 +76,13 @@ export default function DashboardPage() {
               <AssetBreakdown />
             </CardContent>
           </Card>
-          <Card className="bg-black/40 border-gray-800 xl:col-span-2">
+          <Card className=" xl:col-span-2">
             <CardHeader>
               <CardTitle>Your Holdings</CardTitle>
             </CardHeader>
             <AssetTable assets={mockAssets} />
           </Card>
-          <Card className="bg-black/40 border-gray-800">
+          <Card className="">
             <CardHeader>
               <CardTitle>Performance Insights</CardTitle>
             </CardHeader>
@@ -90,7 +90,7 @@ export default function DashboardPage() {
               <PerformanceInsights />
             </CardContent>
           </Card>
-          <Card className="bg-black/40 border-gray-800 xl:col-span-3">
+          <Card className=" xl:col-span-3">
             <CardHeader>
               <CardTitle>Recent Transactions</CardTitle>
             </CardHeader>

@@ -32,18 +32,18 @@ export function TransactionsTable() {
     <div className="max-h-[250px] overflow-hidden">
       <Table>
         <TableHeader>
-          <TableRow className="border-gray-800">
-            <TableHead className="text-gray-400">Date</TableHead>
-            <TableHead className="text-gray-400">Type</TableHead>
-            <TableHead className="text-gray-400">Asset</TableHead>
-            <TableHead className="text-gray-400 text-right">Amount</TableHead>
-            <TableHead className="text-gray-400 text-right">Value</TableHead>
+          <TableRow className="">
+            <TableHead className="">Date</TableHead>
+            <TableHead className="">Type</TableHead>
+            <TableHead className="">Asset</TableHead>
+            <TableHead className=" text-right">Amount</TableHead>
+            <TableHead className=" text-right">Value</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {recentTransactions.map((tx) => (
-            <TableRow key={tx.id} className="border-gray-800">
-              <TableCell className="text-gray-300">{tx.date}</TableCell>
+            <TableRow key={tx.id} className="">
+              <TableCell className="">{tx.date}</TableCell>
               <TableCell>
                 <span
                   className={`px-2 py-1 rounded-full text-xs ${
@@ -53,9 +53,9 @@ export function TransactionsTable() {
                   {tx.type}
                 </span>
               </TableCell>
-              <TableCell className="text-gray-300">{tx.asset}</TableCell>
-              <TableCell className="text-right text-gray-300">{tx.amount}</TableCell>
-              <TableCell className="text-right text-gray-300">${tx.value.toLocaleString()}</TableCell>
+              <TableCell className="">{tx.asset}</TableCell>
+              <TableCell className="text-right ">{tx.amount}</TableCell>
+              <TableCell className="text-right ">${tx.value.toLocaleString()}</TableCell>
             </TableRow>
           ))}
         </TableBody>
