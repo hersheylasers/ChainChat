@@ -313,7 +313,18 @@ class AudioChatApp(App):
                     bottom_pane.write("Ready to record. Press K to start, Q to quit.\n")
 
                     await conn.session.update(
-                        session={"turn_detection": {"type": "server_vad"}}
+                        session={
+                            "turn_detection": {"type": "server_vad"},
+                            "instructions": (
+                                "You are an AI assistant with blockchain capabilities through the CDP (Coinbase Developer Platform) AgentKit. "
+                                "When users ask about blockchain operations like checking balances, deploying contracts, or transferring tokens, "
+                                "acknowledge their request and let them know you'll process it using the CDP tools. "
+                                "For non-blockchain requests, respond normally. Be concise and helpful. "
+                                "If you detect a blockchain request, let the user know you're passing it to the CDP agent for processing."
+                            ),
+                            "voice": "alloy",
+                            "temperature": 0.8,
+                        }
                     )
 
                     acc_items: dict[str, Any] = {}
@@ -349,10 +360,11 @@ class AudioChatApp(App):
                                     acc_items[event.item_id] + event.delta
                                 )
 
-                            # Clear and update the entire content because RichLog otherwise treats each delta as a new line
+                            # Show the latest transcription without clearing history
                             bottom_pane = self.query_one("#bottom-pane", RichLog)
-                            bottom_pane.clear()
-                            bottom_pane.write(acc_items[event.item_id])
+                            bottom_pane.write(
+                                f"\r[blue]Current Input:[/blue] {acc_items[event.item_id]}\n"
+                            )
                             continue
 
                         if event.type == "response.text.done":
@@ -454,9 +466,9 @@ class AudioChatApp(App):
 
                 connection = await self._get_connection()
                 if not sent_audio:
-                    # Clear previous transcription when starting new recording
+                    # Start new recording without clearing history
                     bottom_pane = self.query_one("#bottom-pane", RichLog)
-                    bottom_pane.clear()
+                    bottom_pane.write("\n[blue]Starting new recording...[/blue]\n")
 
                     # Cancel any previous response and start fresh
                     await connection.response.cancel()
