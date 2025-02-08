@@ -1,19 +1,19 @@
-import { Table, TableBody, TableCell, TableHead, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableHeader, TableCell, TableHead, TableRow } from "@/components/ui/table"
 
 const recentTransactions = [
   {
     id: 1,
     date: "2024-02-07",
     type: "Buy",
-    asset: "Bitcoin",
+    asset: "wETH",
     amount: 0.05,
-    value: 2431.75,
+    value: 132.02,
   },
   {
     id: 2,
     date: "2024-02-06",
     type: "Sell",
-    asset: "Ethereum",
+    asset: "cbETH",
     amount: 1.2,
     value: 4189.75,
   },
@@ -21,17 +21,17 @@ const recentTransactions = [
     id: 3,
     date: "2024-02-05",
     type: "Buy",
-    asset: "Solana",
+    asset: "USDC",
     amount: 10,
-    value: 1985.7,
+    value: 10.002,
   },
 ]
 
 export function TransactionsTable() {
   return (
-    <div className="max-h-[250px] overflow-auto">
+    <div className="max-h-[250px] overflow-hidden">
       <Table>
-        <TableHead>
+        <TableHeader>
           <TableRow className="border-gray-800">
             <TableHead className="text-gray-400">Date</TableHead>
             <TableHead className="text-gray-400">Type</TableHead>
@@ -39,7 +39,7 @@ export function TransactionsTable() {
             <TableHead className="text-gray-400 text-right">Amount</TableHead>
             <TableHead className="text-gray-400 text-right">Value</TableHead>
           </TableRow>
-        </TableHead>
+        </TableHeader>
         <TableBody>
           {recentTransactions.map((tx) => (
             <TableRow key={tx.id} className="border-gray-800">

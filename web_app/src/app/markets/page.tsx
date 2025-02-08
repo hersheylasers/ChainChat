@@ -82,7 +82,7 @@ export default function Page() {
     console.log(marketData);
 
     return (
-        <MaxWidthWrapper>
+        <MaxWidthWrapper className='py-4'>
             {isLoading ? (
                 <Card className='dark:border-white animate-fade-bottom-up-slow'>
                     <CardContent>
