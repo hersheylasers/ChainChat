@@ -1,17 +1,26 @@
+from __future__ import annotations
+
 import os
 import sys
 import time
-import asyncio
+
 import base64
-import numpy as np
+import asyncio
+from typing import Any, cast
+from typing_extensions import override
+
 from textual import events
+from audio_util import CHANNELS, SAMPLE_RATE, AudioPlayerAsync
 from textual.app import App, ComposeResult
-from textual.widgets import Static, RichLog
+from textual.widgets import Button, Static, RichLog
 from textual.reactive import reactive
 from textual.containers import Container
 
-from dotenv import load_dotenv
 from openai import AsyncOpenAI
+from openai.types.beta.realtime.session import Session
+from openai.resources.beta.realtime.realtime import AsyncRealtimeConnection
+
+from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import MemorySaver
@@ -30,54 +39,96 @@ wallet_data_file = "wallet_data.txt"
 load_dotenv()
 
 
+class SessionDisplay(Static):
+    """A widget that shows the current session ID."""
+
+    session_id = reactive("")
+
+    @override
+    def render(self) -> str:
+        return f"Session ID: {self.session_id}" if self.session_id else "Connecting..."
+
+
 class AudioStatusIndicator(Static):
     """A widget that shows the current audio recording status."""
 
     is_recording = reactive(False)
-    connection_status = reactive("Connecting to OpenAI...")
-    last_error = reactive("")
 
+    @override
     def render(self) -> str:
-        if self.last_error:
-            return f"❌ Error: {self.last_error}"
-
         status = (
             "🔴 Recording... (Press K to stop)"
             if self.is_recording
             else "⚪ Press K to start recording (Q to quit)"
         )
-        return f"{self.connection_status}\n{status}"
+        return status
 
 
 class AudioChatApp(App):
     CSS = """
-    Screen {
-        background: #1a1b26;
-    }
+        Screen {
+            background: #1a1b26;  /* Dark blue-grey background */
+        }
 
-    Container {
-        border: double rgb(91, 164, 91);
-    }
+        Container {
+            border: double rgb(91, 164, 91);
+        }
 
-    #bottom-pane {
-        width: 100%;
-        height: 82%;
-        border: round rgb(205, 133, 63);
-        content-align: center middle;
-    }
+        Horizontal {
+            width: 100%;
+        }
 
-    #status-indicator {
-        height: 3;
-        content-align: center middle;
-        background: #2a2b36;
-        border: solid rgb(91, 164, 91);
-        margin: 1 1;
-    }
+        #input-container {
+            height: 5;  /* Explicit height for input container */
+            margin: 1 1;
+            padding: 1 2;
+        }
 
-    Static {
-        color: white;
-    }
+        Input {
+            width: 80%;
+            height: 3;  /* Explicit height for input */
+        }
+
+        Button {
+            width: 20%;
+            height: 3;  /* Explicit height for button */
+        }
+
+        #bottom-pane {
+            width: 100%;
+            height: 82%;  /* Reduced to make room for session display */
+            border: round rgb(205, 133, 63);
+            content-align: center middle;
+        }
+
+        #status-indicator {
+            height: 3;
+            content-align: center middle;
+            background: #2a2b36;
+            border: solid rgb(91, 164, 91);
+            margin: 1 1;
+        }
+
+        #session-display {
+            height: 3;
+            content-align: center middle;
+            background: #2a2b36;
+            border: solid rgb(91, 164, 91);
+            margin: 1 1;
+        }
+
+        Static {
+            color: white;
+        }
     """
+
+    client: AsyncOpenAI
+    should_send_audio: asyncio.Event
+    audio_player: AudioPlayerAsync
+    last_audio_item_id: str | None
+    connection: AsyncRealtimeConnection | None
+    session: Session | None
+    connected: asyncio.Event
 
     def __init__(self, agent_executor, config):
         super().__init__()
@@ -85,12 +136,16 @@ class AudioChatApp(App):
         self.config = config
         self.client = AsyncOpenAI()
         self.audio_player = AudioPlayerAsync()
+        self.last_audio_item_id = None
         self.should_send_audio = asyncio.Event()
         self.connected = asyncio.Event()
         self.connection = None
 
+    @override
     def compose(self) -> ComposeResult:
+        """Create child widgets for the app."""
         with Container():
+            yield SessionDisplay(id="session-display")
             yield AudioStatusIndicator(id="status-indicator")
             yield RichLog(id="bottom-pane", wrap=True, highlight=True, markup=True)
 
@@ -99,80 +154,132 @@ class AudioChatApp(App):
         self.run_worker(self.send_mic_audio())
 
     async def handle_realtime_connection(self) -> None:
-        status_indicator = self.query_one(AudioStatusIndicator)
         bottom_pane = self.query_one("#bottom-pane", RichLog)
+        max_retries = 3
+        retry_count = 0
 
-        try:
-            if not os.getenv("OPENAI_API_KEY"):
-                status_indicator.last_error = "OPENAI_API_KEY not found in environment"
-                return
+        while retry_count < max_retries:
+            try:
+                if retry_count > 0:
+                    bottom_pane.write(
+                        f"[yellow]Retrying connection (attempt {retry_count + 1}/{max_retries})...[/yellow]\n"
+                    )
+                    await asyncio.sleep(2)  # Wait before retry
+                else:
+                    bottom_pane.write("[yellow]Connecting to OpenAI API...[/yellow]\n")
 
-            status_indicator.connection_status = "Connecting to OpenAI..."
-            bottom_pane.write("[yellow]Initializing connection...[/yellow]\n")
+                async with self.client.beta.realtime.connect(
+                    model="gpt-4o-realtime-preview"
+                ) as conn:
+                    self.connection = conn
+                    self.connected.set()
 
-            async with self.client.beta.realtime.connect(
-                model="gpt-4o-realtime-preview"
-            ) as conn:
-                bottom_pane.write(
-                    "[yellow]Setting up audio configuration...[/yellow]\n"
-                )
-                await conn.session.update(
-                    session={
-                        "audio": {"sample_rate": SAMPLE_RATE},
-                        "turn_detection": {"type": "server_vad"},
-                    }
-                )
+                    # Show connection status
+                    bottom_pane.write("[green]Connected to OpenAI API[/green]\n")
+                    bottom_pane.write("Ready to record. Press K to start, Q to quit.\n")
 
-                self.connection = conn
-                self.connected.set()
-                status_indicator.connection_status = "Connected ✓"
-                bottom_pane.write("[green]Connected to OpenAI API[/green]\n")
+                    # note: this is the default and can be omitted
+                    # if you want to manually handle VAD yourself, then set `'turn_detection': None`
+                    await conn.session.update(
+                        session={"turn_detection": {"type": "server_vad"}}
+                    )
 
-                acc_text = ""
-                async for event in conn:
-                    bottom_pane.write(f"[dim]Event: {event.type}[/dim]\n")
+                    acc_items: dict[str, Any] = {}
 
-                    if event.type == "response.text.delta":
-                        acc_text += event.delta
-                        bottom_pane.clear()
-                        bottom_pane.write("[blue]Transcription:[/blue]\n")
-                        bottom_pane.write(acc_text + "\n")
+                    async for event in conn:
+                        if event.type == "session.created":
+                            self.session = event.session
+                            session_display = self.query_one(SessionDisplay)
+                            assert event.session.id is not None
+                            session_display.session_id = event.session.id
+                            continue
 
-                    elif event.type == "response.text.done":
-                        if acc_text.strip():  # Only process if we have text
-                            bottom_pane.write("\n[green]Agent Response:[/green]\n")
-                            # Process through agent
-                            for chunk in self.agent_executor.stream(
-                                {"messages": [HumanMessage(content=acc_text)]},
-                                self.config,
-                            ):
-                                if "agent" in chunk:
-                                    bottom_pane.write(
-                                        chunk["agent"]["messages"][0].content
-                                    )
-                                    bottom_pane.write("\n-------------------\n")
-                            acc_text = ""  # Reset for next interaction
-        except Exception as e:
-            error_msg = f"Connection error: {str(e)}"
-            status_indicator.last_error = error_msg
-            bottom_pane.write(f"[red]{error_msg}[/red]\n")
+                        if event.type == "session.updated":
+                            self.session = event.session
+                            continue
+
+                        if event.type == "response.audio.delta":
+                            if event.item_id != self.last_audio_item_id:
+                                self.audio_player.reset_frame_count()
+                                self.last_audio_item_id = event.item_id
+
+                            bytes_data = base64.b64decode(event.delta)
+                            self.audio_player.add_data(bytes_data)
+                            continue
+
+                        if event.type == "response.audio_transcript.delta":
+                            # Reset accumulated items if this is a new recording session
+                            if event.item_id not in acc_items:
+                                acc_items.clear()
+                                acc_items[event.item_id] = event.delta
+                            else:
+                                acc_items[event.item_id] = (
+                                    acc_items[event.item_id] + event.delta
+                                )
+
+                            # Clear and update the entire content because RichLog otherwise treats each delta as a new line
+                            bottom_pane = self.query_one("#bottom-pane", RichLog)
+                            bottom_pane.clear()
+                            bottom_pane.write(acc_items[event.item_id])
+                            continue
+
+                        if event.type == "response.text.done":
+                            if acc_items[event.item_id].strip():
+                                bottom_pane = self.query_one("#bottom-pane", RichLog)
+                                bottom_pane.write("\n[green]Agent Response:[/green]\n")
+                                for chunk in self.agent_executor.stream(
+                                    {
+                                        "messages": [
+                                            HumanMessage(
+                                                content=acc_items[event.item_id]
+                                            )
+                                        ]
+                                    },
+                                    self.config,
+                                ):
+                                    if "agent" in chunk:
+                                        bottom_pane.write(
+                                            chunk["agent"]["messages"][0].content
+                                        )
+                                        bottom_pane.write("\n-------------------\n")
+                            continue
+
+                    # If we get here, connection was successful
+                    return
+
+            except asyncio.TimeoutError:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    bottom_pane.write(
+                        "[red]Connection timed out after multiple attempts. Please check your internet connection and try again.[/red]\n"
+                    )
+                    await asyncio.sleep(2)  # Give user time to read the message
+                    self.exit()
+                continue
+
+            except Exception as e:
+                retry_count += 1
+                if retry_count >= max_retries:
+                    bottom_pane.write(
+                        f"[red]Connection error after multiple attempts: {str(e)}[/red]\n"
+                    )
+                    await asyncio.sleep(2)  # Give user time to read the message
+                    self.exit()
+                continue
+
+    async def _get_connection(self) -> AsyncRealtimeConnection:
+        await self.connected.wait()
+        assert self.connection is not None
+        return self.connection
 
     async def send_mic_audio(self) -> None:
-        import sounddevice as sd
-
-        bottom_pane = self.query_one("#bottom-pane", RichLog)
-
-        # Wait for connection to be established
-        try:
-            await asyncio.wait_for(self.connected.wait(), timeout=10.0)
-            if not self.connection:
-                bottom_pane.write("[red]Error: Could not establish connection[/red]\n")
-                return
-        except asyncio.TimeoutError:
-            bottom_pane.write("[red]Error: Connection timeout[/red]\n")
-            return
+        import sounddevice as sd  # type: ignore
 
         sent_audio = False
+
+        device_info = sd.query_devices()
+        print(device_info)
+
         read_size = int(SAMPLE_RATE * 0.02)
 
         stream = sd.InputStream(
@@ -186,48 +293,45 @@ class AudioChatApp(App):
 
         try:
             while True:
+                if not self.should_send_audio.is_set():
+                    sent_audio = False  # Reset flag when not recording
+                    await asyncio.sleep(0)
+                    continue
+
                 if stream.read_available < read_size:
                     await asyncio.sleep(0)
                     continue
 
-                if self.should_send_audio.is_set():
-                    status_indicator.is_recording = True
-                    data, _ = stream.read(read_size)
+                status_indicator.is_recording = True
+                data, _ = stream.read(read_size)
 
-                    if not sent_audio:
-                        bottom_pane.write(
-                            "[yellow]Starting new recording session...[/yellow]\n"
-                        )
-                        await self.connection.send({"type": "response.cancel"})
-                        sent_audio = True
+                connection = await self._get_connection()
+                if not sent_audio:
+                    # Clear previous transcription when starting new recording
+                    bottom_pane = self.query_one("#bottom-pane", RichLog)
+                    bottom_pane.clear()
 
-                    # Send audio data in the correct format for the API
-                    await self.connection.send(
-                        {
-                            "type": "input_audio_buffer.append",
-                            "audio": base64.b64encode(data).decode("utf-8"),
-                        }
-                    )
-                else:
-                    if sent_audio:
-                        bottom_pane.write("[yellow]Processing recording...[/yellow]\n")
-                        # Signal end of audio input
-                        await self.connection.send(
-                            {"type": "input_audio_buffer.commit"}
-                        )
-                        await self.connection.send({"type": "response.create"})
-                        sent_audio = False
-                    status_indicator.is_recording = False
+                    # Cancel any previous response and start fresh
+                    asyncio.create_task(connection.send({"type": "response.cancel"}))
+                    sent_audio = True
+
+                await connection.input_audio_buffer.append(
+                    audio=base64.b64encode(cast(Any, data)).decode("utf-8")
+                )
 
                 await asyncio.sleep(0)
-        except Exception as e:
-            print(f"Error in send_mic_audio: {e}")
+        except KeyboardInterrupt:
+            pass
         finally:
             stream.stop()
             stream.close()
 
     async def on_key(self, event: events.Key) -> None:
         """Handle key press events."""
+        if event.key == "enter":
+            self.query_one(Button).press()
+            return
+
         if event.key == "q":
             self.exit()
             return
@@ -237,6 +341,11 @@ class AudioChatApp(App):
             if status_indicator.is_recording:
                 self.should_send_audio.clear()
                 status_indicator.is_recording = False
+
+                # When stopping recording, ensure the audio buffer is committed and response is created
+                conn = await self._get_connection()
+                await conn.input_audio_buffer.commit()
+                await conn.response.create()
             else:
                 self.should_send_audio.set()
                 status_indicator.is_recording = True
