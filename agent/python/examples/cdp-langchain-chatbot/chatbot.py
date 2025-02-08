@@ -255,7 +255,11 @@ class AudioChatApp(App):
                     )
                     await asyncio.sleep(2)  # Give user time to read the message
                     self.exit()
-                continue
+                else:
+                    # Reset connection state before retry
+                    self.connection = None
+                    self.connected.clear()
+                    continue
 
             except Exception as e:
                 retry_count += 1
@@ -265,7 +269,11 @@ class AudioChatApp(App):
                     )
                     await asyncio.sleep(2)  # Give user time to read the message
                     self.exit()
-                continue
+                else:
+                    # Reset connection state before retry
+                    self.connection = None
+                    self.connected.clear()
+                    continue
 
     async def _get_connection(self) -> AsyncRealtimeConnection:
         await self.connected.wait()
