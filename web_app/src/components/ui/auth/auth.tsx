@@ -8,7 +8,7 @@ export default function Login() {
   const { login, logout, user, ready, authenticated } = usePrivy();
 
   const router = useRouter(); // For pasing build
-  
+
   if (!ready) return <p>Loading...</p>;
   console.log(user);
 
@@ -22,11 +22,11 @@ export default function Login() {
         <>
         <div className='flex justify-end items-center gap-2 '>
           <p>{user.google!.name  ? user.google!.name : user.wallet?.address}!</p>
-          <button onClick={logout} className='bg-blue-500 rounded-lg p-2 gap-4'>Logout</button>
+          <button onClick={logout} className='lg:inline-flex lg:w-auto w-full px-3 py-2 rounded items-center justify-center dark:hover:bg-navHover hover:bg-primary cursor-pointer hover:text-white'>Logout</button>
           </div>
         </>
       ) : (
-        <button onClick={login} className='bg-blue-500 rounded-lg p-2'>Login with Privy</button>
+        <button onClick={login} className='lg:inline-flex lg:w-auto w-full px-3 py-2 rounded items-center justify-center dark:hover:bg-navHover hover:bg-primary cursor-pointer hover:text-white'>Login with Privy</button>
       )}
     </div>
   );
