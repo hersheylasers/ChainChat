@@ -1,10 +1,10 @@
 'use client';
-
+import 'dotenv/config';
 import { PrivyProvider } from '@privy-io/react-auth';
 export default function Providers({ children }: { children: React.ReactNode }) {
     return (
       <PrivyProvider
-        appId='cm6n3pq6a00pn5hrrz4366rtn'
+        appId={process.env.PRIVY_APP_ID!}
         config={{
             loginMethods:['email','google','wallet','twitter', 'discord','github'],
           appearance: {
