@@ -22,10 +22,10 @@ export function CreateStrategyForm() {
         placeholder="Strategy Name"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        className="bg-gray-800 border-gray-700 text-white"
+        className=""
       />
       <Select onValueChange={setAsset}>
-        <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+        <SelectTrigger className="">
           <SelectValue placeholder="Select Asset" />
         </SelectTrigger>
         <SelectContent>
@@ -35,7 +35,7 @@ export function CreateStrategyForm() {
         </SelectContent>
       </Select>
       <Select onValueChange={setType}>
-        <SelectTrigger className="bg-gray-800 border-gray-700 text-white">
+        <SelectTrigger className="">
           <SelectValue placeholder="Strategy Type" />
         </SelectTrigger>
         <SelectContent>

@@ -12,19 +12,19 @@ export function StrategyList() {
   return (
     <Table>
       <TableHeader>
-        <TableRow className="border-gray-800">
-          <TableHead className="text-gray-400">Strategy</TableHead>
-          <TableHead className="text-gray-400">Asset</TableHead>
-          <TableHead className="text-gray-400">Status</TableHead>
-          <TableHead className="text-gray-400 text-right">Profit/Loss</TableHead>
-          <TableHead className="text-gray-400 text-right">Action</TableHead>
+        <TableRow className="">
+          <TableHead className="">Strategy</TableHead>
+          <TableHead className="">Asset</TableHead>
+          <TableHead className="">Status</TableHead>
+          <TableHead className=" text-right">Profit/Loss</TableHead>
+          <TableHead className=" text-right">Action</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
         {strategies.map((strategy) => (
-          <TableRow key={strategy.id} className="border-gray-800">
-            <TableCell className="font-medium text-gray-300">{strategy.name}</TableCell>
-            <TableCell className="text-gray-300">{strategy.asset}</TableCell>
+          <TableRow key={strategy.id} className="">
+            <TableCell className="font-medium ">{strategy.name}</TableCell>
+            <TableCell className="">{strategy.asset}</TableCell>
             <TableCell>
               <Badge variant={strategy.status === "Active" ? "success" : "secondary"}>{strategy.status}</Badge>
             </TableCell>

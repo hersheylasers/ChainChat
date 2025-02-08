@@ -21,8 +21,8 @@ export function StrategyPerformance() {
           content={({ active, payload }) => {
             if (active && payload && payload.length) {
               return (
-                <Card className="p-2 bg-black/80 border-gray-800">
-                  <div className="text-sm text-gray-400">{payload[0].payload.date}</div>
+                <Card className="p-2">
+                  <div className="text-sm">{payload[0].payload.date}</div>
                   <div className="font-medium">${payload[0].value?.toLocaleString()}</div>
                 </Card>
               )
