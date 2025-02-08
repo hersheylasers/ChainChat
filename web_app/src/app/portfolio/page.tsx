@@ -6,21 +6,46 @@ import { PerformanceInsights } from "./components/performance-insights"
 import { TransactionsTable } from "./components/transactions-table"
 
 const mockAssets = [
+  // {
+  //   symbol: "BTC",
+  //   name: "Bitcoin",
+  //   holdings: 0.5,
+  //   currentPrice: 48647.0,
+  //   value: 49323.5,
+  //   change24h: 1.52,
+  // },
+  // {
+  //   symbol: "ETH",
+  //   name: "Ethereum",
+  //   holdings: 2,
+  //   currentPrice: 3491.46,
+  //   value: 6982.92,
+  //   change24h: 0.76,
+  // },
+
   {
-    symbol: "BTC",
-    name: "Bitcoin",
-    holdings: 0.5,
-    currentPrice: 48647.0,
-    value: 49323.5,
-    change24h: 1.52,
+    symbol: "wETH",
+    name: "Wrapped Ethereum",
+    holdings: 3,
+    currentPrice: 2640.4,
+    value: 7921.2,
+    change24h: 0.24,
   },
   {
-    symbol: "ETH",
-    name: "Ethereum",
+    symbol: "cbETH",
+    name: "Coinbase Wrapped Staked Ethereum",
     holdings: 2,
-    currentPrice: 3491.46,
-    value: 6982.92,
-    change24h: 0.76,
+    currentPrice: 2840.35,
+    value: 5680.7,
+    change24h: 0.64,
+  },
+  {
+    symbol: "USDC",
+    name: "USDC",
+    holdings: 2,
+    currentPrice: 1,
+    value: 2.001,
+    change24h: 0.96,
   },
   // ... other assets
 ]

@@ -7,10 +7,10 @@ ChartJS.register(ArcElement, Tooltip, Legend)
 
 export function AssetBreakdown() {
   const data = {
-    labels: ["Bitcoin", "Ethereum", "Avalanche", "Tether", "Solana"],
+    labels: ["wETH", "cbETH", "USDC"],
     datasets: [
       {
-        data: [49323.5, 6982.92, 2037.0, 998.81, 3971.4],
+        data: [49323.5, 6982.92, 2037.0],
         backgroundColor: ["#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#4A90E2"],
         borderWidth: 0,
       },
