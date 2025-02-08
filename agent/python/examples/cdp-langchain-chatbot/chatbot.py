@@ -249,29 +249,42 @@ class AudioChatApp(App):
         cdp_log.write("Initializing CDP agent...[/yellow]\n")
 
         try:
-            # Show agent initialization
+            # Show agent initialization and debug info
             cdp_log.write("[green]CDP Agent initialized successfully[/green]\n")
             cdp_log.write("[yellow]Processing request through CDP agent...[/yellow]\n")
+            cdp_log.write(f"[blue]Request text: {text}[/blue]\n")
+            cdp_log.write("[blue]Agent config: " + str(self.config) + "[/blue]\n")
+            cdp_log.refresh()
 
             cdp_response = ""
             chunk_count = 0
-            for chunk in self.agent_executor.stream(
+
+            # Debug: Verify agent executor is callable
+            cdp_log.write("[blue]Calling CDP agent executor...[/blue]\n")
+            cdp_log.refresh()
+
+            # Process agent response
+            async for chunk in self.agent_executor.astream(
                 {"messages": [HumanMessage(content=text)]},
                 self.config,
             ):
                 chunk_count += 1
                 cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
+                cdp_log.refresh()
 
                 if "agent" in chunk:
                     response_text = chunk["agent"]["messages"][0].content
                     cdp_response += response_text
                     cdp_log.write("[green]Agent Response:[/green]\n")
                     cdp_log.write(response_text + "\n")
+                    cdp_log.refresh()
                 elif "tools" in chunk:
                     tool_text = chunk["tools"]["messages"][0].content
                     cdp_log.write(f"[yellow]Using Tool:[/yellow] {tool_text}\n")
+                    cdp_log.refresh()
                 else:
                     cdp_log.write(f"[blue]Other chunk type:[/blue] {chunk}\n")
+                    cdp_log.refresh()
 
             # Show completion status
             cdp_log.write("\n[green]CDP processing completed[/green]\n")
@@ -323,10 +336,10 @@ class AudioChatApp(App):
 
             # If it's a blockchain request, handle it independently
             if self.is_blockchain_request(message):
-                # Process CDP request in parallel without affecting the main conversation
-                asyncio.create_task(self.handle_cdp_request(message))
+                # Process CDP request first
+                await self.handle_cdp_request(message)
 
-            # Always let the realtime API handle the conversation flow
+            # Then let the realtime API handle the conversation flow
             await connection.response.create(
                 response={
                     "conversation": "auto",
@@ -496,10 +509,8 @@ class AudioChatApp(App):
 
                                 # If it's a blockchain request, handle it independently
                                 if self.is_blockchain_request(transcribed_text):
-                                    # Process CDP request in parallel without affecting audio stream
-                                    asyncio.create_task(
-                                        self.handle_cdp_request(transcribed_text)
-                                    )
+                                    # Process CDP request
+                                    await self.handle_cdp_request(transcribed_text)
                                 else:
                                     # Let the voice agent handle non-blockchain requests
                                     audio_log.write(
