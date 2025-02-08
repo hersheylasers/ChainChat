@@ -9,19 +9,7 @@ import { DataTableColumnHeader } from '@/components/ui/data-table-column-header'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { DataTable } from '@/components/ui/data-table'
-
-type MarketTableDataType = {
-    name: string;
-    symbol: string;
-    quote: {
-        USD: {
-            price: number;
-            volume_24h: number;
-            market_cap: number;
-        }
-    }
-}
+import { DataTable, MarketTableDataType } from '@/components/ui/data-table'
 
 const marketDataTableColumns: ColumnDef<MarketTableDataType>[] = [
     {
@@ -31,29 +19,29 @@ const marketDataTableColumns: ColumnDef<MarketTableDataType>[] = [
         ),
     },
     {
-        accessorKey: 'symbol',
-        header: ({ column }) => (
-            <DataTableColumnHeader column={column} title='Symbol' />
-        ),
-    },
-    {
-        accessorKey: 'quote.USD.price',
+        accessorKey: 'current_price',
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title='Price (in USD)' />
         ),
     },
     {
-        accessorKey: 'quote.USD.volume_24h',
+        accessorKey: 'price_change_percentage_24h',
         header: ({ column }) => (
-            <DataTableColumnHeader column={column} title='Volume (in USD)' />
+            <DataTableColumnHeader column={column} title='24h Change' />
         ),
     },
     {
-        accessorKey: 'quote.USD.market_cap',
+        accessorKey: 'market_cap',
         header: ({ column }) => (
             <DataTableColumnHeader column={column} title='Market Cap (in USD)' />
         ),
     },
+    {
+        accessorKey: 'total_volume',
+        header: ({ column }) => (
+            <DataTableColumnHeader column={column} title='Total Volume (in USD)' />
+        ),
+    }
 ]
 
 export default function Page() {
@@ -78,13 +66,13 @@ export default function Page() {
     })
 
     const isLoading = MarketActivityQuery.some(query => query.isLoading);
-    const marketData = MarketActivityQuery[0].data;
+    const marketData = MarketActivityQuery[0];
     console.log(marketData);
 
     return (
         <MaxWidthWrapper className='py-4'>
             {isLoading ? (
-                <Card className='dark:border-white animate-fade-bottom-up-slow'>
+                <Card className='border-none animate-fade-bottom-up-slow'>
                     <CardContent>
                         <div className='flex flex-col h-full space-y-2 pt-8'>
                             {['h-9 md:w-1/3', 'h-10', 'h-12', 'h-12', 'h-12', 'h-12', 'h-12', 'h-12', 'h-12'].map((classes, index) => (
@@ -94,7 +82,7 @@ export default function Page() {
                     </CardContent>
                 </Card>
             ) : (
-                <Card className='dark:border-white animate-fade-bottom-up-slow'>
+                <Card className='border-none animate-fade-bottom-up-slow'>
                     <CardHeader>
                         <div className='text-2xl md:text-4xl text-center md:text-start'>Markets</div>
                     </CardHeader>
