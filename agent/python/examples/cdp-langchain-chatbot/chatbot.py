@@ -120,6 +120,18 @@ class AudioChatApp(App):
         Static {
             color: white;
         }
+
+        .blockchain-response {
+            background: #2a2b36;
+            border-left: solid rgb(91, 164, 91);
+            padding: 1;
+        }
+        
+        .assistant-response {
+            background: #2a2b36;
+            border-left: solid rgb(205, 133, 63);
+            padding: 1;
+        }
     """
 
     client: AsyncOpenAI
@@ -140,6 +152,27 @@ class AudioChatApp(App):
         self.should_send_audio = asyncio.Event()
         self.connected = asyncio.Event()
         self.connection = None
+        self.conversation_context = []  # Track conversation history
+
+    def is_blockchain_request(self, text: str) -> bool:
+        """Detect if the request needs CDP tools."""
+        keywords = [
+            "blockchain",
+            "wallet",
+            "token",
+            "nft",
+            "transfer",
+            "balance",
+            "deploy",
+            "contract",
+            "eth",
+            "transaction",
+            "faucet",
+            "funds",
+            "network",
+            "address",
+        ]
+        return any(keyword in text.lower() for keyword in keywords)
 
     @override
     def compose(self) -> ComposeResult:
@@ -178,8 +211,6 @@ class AudioChatApp(App):
                     bottom_pane.write("[green]Connected to OpenAI API[/green]\n")
                     bottom_pane.write("Ready to record. Press K to start, Q to quit.\n")
 
-                    # note: this is the default and can be omitted
-                    # if you want to manually handle VAD yourself, then set `'turn_detection': None`
                     await conn.session.update(
                         session={"turn_detection": {"type": "server_vad"}}
                     )
@@ -226,22 +257,111 @@ class AudioChatApp(App):
                         if event.type == "response.text.done":
                             if acc_items[event.item_id].strip():
                                 bottom_pane = self.query_one("#bottom-pane", RichLog)
-                                bottom_pane.write("\n[green]Agent Response:[/green]\n")
-                                for chunk in self.agent_executor.stream(
-                                    {
-                                        "messages": [
-                                            HumanMessage(
-                                                content=acc_items[event.item_id]
-                                            )
-                                        ]
-                                    },
-                                    self.config,
-                                ):
-                                    if "agent" in chunk:
-                                        bottom_pane.write(
-                                            chunk["agent"]["messages"][0].content
+                                transcribed_text = acc_items[event.item_id]
+
+                                # Display transcribed text
+                                bottom_pane.write("\n[blue]Transcribed Text:[/blue]\n")
+                                bottom_pane.write(f"{transcribed_text}\n")
+
+                                # Store user message in context
+                                self.conversation_context.append(
+                                    {"role": "user", "content": transcribed_text}
+                                )
+
+                                if self.is_blockchain_request(transcribed_text):
+                                    # Use CDP agent for blockchain operations
+                                    bottom_pane.write(
+                                        "\n[yellow]Detected blockchain request, using CDP agent:[/yellow]\n"
+                                    )
+                                    try:
+                                        cdp_response = ""
+                                        for chunk in self.agent_executor.stream(
+                                            {
+                                                "messages": [
+                                                    HumanMessage(
+                                                        content=transcribed_text
+                                                    )
+                                                ]
+                                            },
+                                            self.config,
+                                        ):
+                                            if "agent" in chunk:
+                                                response_text = chunk["agent"][
+                                                    "messages"
+                                                ][0].content
+                                                cdp_response += response_text
+                                                bottom_pane.write(response_text)
+                                            elif "tools" in chunk:
+                                                tool_text = chunk["tools"]["messages"][
+                                                    0
+                                                ].content
+                                                bottom_pane.write(
+                                                    f"\n[yellow]Using Tool:[/yellow] {tool_text}\n"
+                                                )
+
+                                        # Store CDP response in context
+                                        self.conversation_context.append(
+                                            {
+                                                "role": "assistant",
+                                                "content": cdp_response,
+                                                "agent": "cdp",
+                                            }
                                         )
+
+                                        # Share CDP response with voice agent through conversation
+                                        from openai.types.beta.realtime.conversation_item_param import (
+                                            ConversationItemParam,
+                                        )
+                                        from openai.types.beta.realtime.conversation_item_content_param import (
+                                            ConversationItemContentParam,
+                                        )
+
+                                        response_text = (
+                                            "I've processed your blockchain request. Here's what happened: "
+                                            + cdp_response
+                                            + "\nWould you like me to explain anything about what was done?"
+                                        )
+
+                                        await conn.conversation.item.create(
+                                            item=ConversationItemParam(
+                                                role="assistant",
+                                                content=[
+                                                    ConversationItemContentParam(
+                                                        type="text", text=response_text
+                                                    )
+                                                ],
+                                            )
+                                        )
+
                                         bottom_pane.write("\n-------------------\n")
+                                    except Exception as e:
+                                        error_msg = f"\n[red]Error processing blockchain request: {str(e)}[/red]\n"
+                                        bottom_pane.write(error_msg)
+                                        bottom_pane.write("\n-------------------\n")
+
+                                        # Share error with voice agent through conversation
+                                        error_text = (
+                                            "I encountered an error while processing your blockchain request: "
+                                            + str(e)
+                                            + "\nWould you like to try again?"
+                                        )
+
+                                        await conn.conversation.item.create(
+                                            item=ConversationItemParam(
+                                                role="assistant",
+                                                content=[
+                                                    ConversationItemContentParam(
+                                                        type="text", text=error_text
+                                                    )
+                                                ],
+                                            )
+                                        )
+                                else:
+                                    # Let the voice agent handle non-blockchain requests
+                                    bottom_pane.write(
+                                        "\n[green]Assistant Response:[/green]\n"
+                                    )
+                                    # The response will come through the normal realtime API flow
                             continue
 
                     # If we get here, connection was successful
