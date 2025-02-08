@@ -192,6 +192,42 @@ class AudioChatApp(App):
         ]
         return any(keyword in text.lower() for keyword in keywords)
 
+    async def handle_cdp_request(self, text: str) -> None:
+        """Handle CDP agent requests independently of the realtime API connection."""
+        bottom_pane = self.query_one("#bottom-pane", RichLog)
+        bottom_pane.write(
+            "\n[yellow]Detected blockchain request, using CDP agent:[/yellow]\n"
+        )
+
+        try:
+            cdp_response = ""
+            for chunk in self.agent_executor.stream(
+                {"messages": [HumanMessage(content=text)]},
+                self.config,
+            ):
+                if "agent" in chunk:
+                    response_text = chunk["agent"]["messages"][0].content
+                    cdp_response += response_text
+                    bottom_pane.write(response_text)
+                elif "tools" in chunk:
+                    tool_text = chunk["tools"]["messages"][0].content
+                    bottom_pane.write(f"\n[yellow]Using Tool:[/yellow] {tool_text}\n")
+
+            # Store CDP response in context
+            self.conversation_context.append(
+                {
+                    "role": "assistant",
+                    "content": cdp_response,
+                    "agent": "cdp",
+                }
+            )
+
+            bottom_pane.write("\n-------------------\n")
+        except Exception as e:
+            error_msg = f"\n[red]Error processing blockchain request: {str(e)}[/red]\n"
+            bottom_pane.write(error_msg)
+            bottom_pane.write("\n-------------------\n")
+
     async def handle_message(self, message: str) -> None:
         """Handle text messages from the input field."""
         if not message.strip():
@@ -205,91 +241,19 @@ class AudioChatApp(App):
         try:
             connection = await self._get_connection()
 
+            # If it's a blockchain request, handle it independently
             if self.is_blockchain_request(message):
-                # Use CDP agent for blockchain operations
-                bottom_pane.write(
-                    "\n[yellow]Detected blockchain request, using CDP agent:[/yellow]\n"
-                )
-                try:
-                    cdp_response = ""
-                    for chunk in self.agent_executor.stream(
-                        {"messages": [HumanMessage(content=message)]},
-                        self.config,
-                    ):
-                        if "agent" in chunk:
-                            response_text = chunk["agent"]["messages"][0].content
-                            cdp_response += response_text
-                            bottom_pane.write(response_text)
-                        elif "tools" in chunk:
-                            tool_text = chunk["tools"]["messages"][0].content
-                            bottom_pane.write(
-                                f"\n[yellow]Using Tool:[/yellow] {tool_text}\n"
-                            )
+                # Process CDP request in parallel without affecting the main conversation
+                asyncio.create_task(self.handle_cdp_request(message))
 
-                    # Send CDP response through realtime API
-                    await connection.send(
-                        {
-                            "type": "response.create",
-                            "response": {
-                                "conversation": "auto",
-                                "input": [
-                                    {
-                                        "type": "message",
-                                        "role": "assistant",
-                                        "content": [
-                                            {
-                                                "type": "text",
-                                                "text": f"CDP Agent says: {cdp_response}",
-                                            }
-                                        ],
-                                        "status": "completed",
-                                    }
-                                ],
-                                "modalities": ["text"],
-                            },
-                        }
-                    )
-                    bottom_pane.write("\n-------------------\n")
-                except Exception as e:
-                    error_msg = (
-                        f"\n[red]Error processing blockchain request: {str(e)}[/red]\n"
-                    )
-                    bottom_pane.write(error_msg)
-                    bottom_pane.write("\n-------------------\n")
-                    await connection.send(
-                        {
-                            "type": "response.create",
-                            "response": {
-                                "conversation": "auto",
-                                "input": [
-                                    {
-                                        "type": "message",
-                                        "role": "assistant",
-                                        "content": [
-                                            {
-                                                "type": "text",
-                                                "text": f"I encountered an error while processing your blockchain request: {str(e)}",
-                                            }
-                                        ],
-                                        "status": "completed",
-                                    }
-                                ],
-                                "modalities": ["text"],
-                            },
-                        }
-                    )
-            else:
-                # For non-blockchain requests, send to realtime API for response
-                await connection.send(
-                    {
-                        "type": "response.create",
-                        "response": {
-                            "conversation": "auto",
-                            "modalities": ["text"],
-                            "instructions": "Please respond to: " + message,
-                        },
-                    }
-                )
+            # Always let the realtime API handle the conversation flow
+            await connection.response.create(
+                response={
+                    "conversation": "auto",
+                    "modalities": ["text"],
+                    "instructions": message,
+                }
+            )
         except Exception as e:
             bottom_pane.write(f"\n[red]Error sending message: {str(e)}[/red]\n")
 
@@ -405,111 +369,12 @@ class AudioChatApp(App):
                                     {"role": "user", "content": transcribed_text}
                                 )
 
+                                # If it's a blockchain request, handle it independently
                                 if self.is_blockchain_request(transcribed_text):
-                                    # Use CDP agent for blockchain operations
-                                    bottom_pane.write(
-                                        "\n[yellow]Detected blockchain request, using CDP agent:[/yellow]\n"
+                                    # Process CDP request in parallel without affecting audio stream
+                                    asyncio.create_task(
+                                        self.handle_cdp_request(transcribed_text)
                                     )
-                                    try:
-                                        cdp_response = ""
-                                        for chunk in self.agent_executor.stream(
-                                            {
-                                                "messages": [
-                                                    HumanMessage(
-                                                        content=transcribed_text
-                                                    )
-                                                ]
-                                            },
-                                            self.config,
-                                        ):
-                                            if "agent" in chunk:
-                                                response_text = chunk["agent"][
-                                                    "messages"
-                                                ][0].content
-                                                cdp_response += response_text
-                                                bottom_pane.write(response_text)
-                                            elif "tools" in chunk:
-                                                tool_text = chunk["tools"]["messages"][
-                                                    0
-                                                ].content
-                                                bottom_pane.write(
-                                                    f"\n[yellow]Using Tool:[/yellow] {tool_text}\n"
-                                                )
-
-                                        # Store CDP response in context
-                                        self.conversation_context.append(
-                                            {
-                                                "role": "assistant",
-                                                "content": cdp_response,
-                                                "agent": "cdp",
-                                            }
-                                        )
-
-                                        # Share CDP response with voice agent through conversation
-                                        response_text = (
-                                            "I've processed your blockchain request. Here's what happened: "
-                                            + cdp_response
-                                            + "\nWould you like me to explain anything about what was done?"
-                                        )
-
-                                        await conn.send(
-                                            {
-                                                "type": "response.create",
-                                                "response": {
-                                                    "conversation": "auto",
-                                                    "input": [
-                                                        {
-                                                            "type": "message",
-                                                            "role": "assistant",
-                                                            "content": [
-                                                                {
-                                                                    "type": "text",
-                                                                    "text": response_text,
-                                                                }
-                                                            ],
-                                                            "status": "completed",
-                                                        }
-                                                    ],
-                                                    "modalities": ["text", "audio"],
-                                                },
-                                            }
-                                        )
-
-                                        bottom_pane.write("\n-------------------\n")
-                                    except Exception as e:
-                                        error_msg = f"\n[red]Error processing blockchain request: {str(e)}[/red]\n"
-                                        bottom_pane.write(error_msg)
-                                        bottom_pane.write("\n-------------------\n")
-
-                                        # Share error with voice agent through conversation
-                                        error_text = (
-                                            "I encountered an error while processing your blockchain request: "
-                                            + str(e)
-                                            + "\nWould you like to try again?"
-                                        )
-
-                                        await conn.send(
-                                            {
-                                                "type": "response.create",
-                                                "response": {
-                                                    "conversation": "auto",
-                                                    "input": [
-                                                        {
-                                                            "type": "message",
-                                                            "role": "assistant",
-                                                            "content": [
-                                                                {
-                                                                    "type": "text",
-                                                                    "text": error_text,
-                                                                }
-                                                            ],
-                                                            "status": "completed",
-                                                        }
-                                                    ],
-                                                    "modalities": ["text", "audio"],
-                                                },
-                                            }
-                                        )
                                 else:
                                     # Let the voice agent handle non-blockchain requests
                                     bottom_pane.write(
@@ -594,14 +459,12 @@ class AudioChatApp(App):
                     bottom_pane.clear()
 
                     # Cancel any previous response and start fresh
-                    asyncio.create_task(connection.send({"type": "response.cancel"}))
+                    await connection.response.cancel()
                     sent_audio = True
 
-                await connection.send(
-                    {
-                        "type": "input_audio_buffer.append",
-                        "audio": base64.b64encode(cast(Any, data)).decode("utf-8"),
-                    }
+                # Use proper audio buffer append method
+                await connection.input_audio_buffer.append(
+                    audio=base64.b64encode(cast(Any, data)).decode("utf-8")
                 )
 
                 await asyncio.sleep(0)
@@ -630,13 +493,10 @@ class AudioChatApp(App):
                 # When stopping recording, ensure the audio buffer is committed and response is created
                 conn = await self._get_connection()
                 await conn.input_audio_buffer.commit()
-                await conn.send(
-                    {
-                        "type": "response.create",
-                        "response": {
-                            "conversation": "auto",
-                            "modalities": ["text", "audio"],
-                        },
+                await conn.response.create(
+                    response={
+                        "conversation": "auto",
+                        "modalities": ["text", "audio"],
                     }
                 )
             else:
