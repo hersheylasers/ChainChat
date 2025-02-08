@@ -334,8 +334,13 @@ class AudioChatApp(App):
         try:
             connection = await self._get_connection()
 
-            # If it's a blockchain request, handle it independently
-            if self.is_blockchain_request(message):
+            # Check for blockchain keywords (this will show debug output)
+            audio_log.write("\n[yellow]Checking for blockchain keywords...[/yellow]\n")
+            audio_log.refresh()
+            is_blockchain = self.is_blockchain_request(message)
+            audio_log.refresh()
+
+            if is_blockchain:
                 # Process CDP request first
                 await self.handle_cdp_request(message)
 
@@ -450,6 +455,80 @@ class AudioChatApp(App):
                     acc_items: dict[str, Any] = {}
 
                     async for event in conn:
+                        # Debug: Log all event types and content
+                        audio_log.write(f"\n[yellow]===== Event =====\n")
+                        audio_log.write(f"Type: {event.type}\n")
+
+                        # Log event-specific attributes
+                        if event.type == "response.text.delta":
+                            audio_log.write(f"Delta: {event.delta}\n")
+                        elif event.type == "response.audio.delta":
+                            audio_log.write("Audio delta received\n")
+                        elif event.type == "response.audio_transcript.delta":
+                            audio_log.write(f"Transcript delta: {event.delta}\n")
+                        elif event.type == "session.created":
+                            audio_log.write(f"Session: {event.session}\n")
+                        elif event.type == "session.updated":
+                            audio_log.write(f"Session: {event.session}\n")
+                        elif event.type == "response.text.done":
+                            audio_log.write(f"Item ID: {event.item_id}\n")
+                        elif event.type == "input_audio_buffer.committed":
+                            audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
+                            audio_log.write("[green]Audio buffer committed[/green]\n")
+                            audio_log.write("Creating response...\n")
+                            audio_log.refresh()
+                        elif event.type == "input_audio_buffer.speech_started":
+                            audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
+                            audio_log.write(
+                                "[green]Speech started - recording...[/green]\n"
+                            )
+                            audio_log.refresh()
+                        elif event.type == "input_audio_buffer.speech_stopped":
+                            audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
+                            audio_log.write(
+                                "[green]Speech stopped - processing...[/green]\n"
+                            )
+                            audio_log.write("Waiting for transcription...\n")
+                            audio_log.refresh()
+                        elif event.type == "response.created":
+                            audio_log.write("\n[yellow]Response Event[/yellow]\n")
+                            audio_log.write(
+                                "[green]Response created - starting processing[/green]\n"
+                            )
+                            audio_log.refresh()
+                        elif event.type == "response.done":
+                            audio_log.write("\n[yellow]Response Event[/yellow]\n")
+                            audio_log.write("[green]Response completed[/green]\n")
+                            audio_log.write("Checking accumulated items...\n")
+                            audio_log.write(f"Current items: {acc_items}\n")
+                            audio_log.refresh()
+                        elif event.type == "conversation.created":
+                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                            audio_log.write("[green]New conversation created[/green]\n")
+                            audio_log.refresh()
+                        elif event.type == "conversation_item.created":
+                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                            audio_log.write(
+                                "[green]New conversation item created[/green]\n"
+                            )
+                            audio_log.write(
+                                f"Item ID: {event.item_id if hasattr(event, 'item_id') else 'N/A'}\n"
+                            )
+                            audio_log.refresh()
+                        elif event.type == "conversation_item.truncated":
+                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                            audio_log.write(
+                                "[blue]Conversation item truncated[/blue]\n"
+                            )
+                            audio_log.refresh()
+                        elif event.type == "conversation_item.deleted":
+                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                            audio_log.write("[blue]Conversation item deleted[/blue]\n")
+                            audio_log.refresh()
+
+                        audio_log.write("=================\n")
+                        audio_log.refresh()
+
                         if event.type == "session.created":
                             self.session = event.session
                             session_display = self.query_one(SessionDisplay)
@@ -477,38 +556,72 @@ class AudioChatApp(App):
                             continue
 
                         if event.type == "response.audio_transcript.delta":
+                            # Debug: Show transcription event details
+                            audio_log = self.query_one("#audio-log", RichLog)
+                            audio_log.write("\n[yellow]Transcription Event[/yellow]\n")
+                            audio_log.write(f"Item ID: {event.item_id}\n")
+                            audio_log.write(f"Delta: {event.delta}\n")
+                            audio_log.refresh()
+
                             # Reset accumulated items if this is a new recording session
                             if event.item_id not in acc_items:
+                                audio_log.write(
+                                    "[blue]New recording session - clearing items[/blue]\n"
+                                )
                                 acc_items.clear()
                                 acc_items[event.item_id] = event.delta
                             else:
+                                audio_log.write(
+                                    "[blue]Appending to existing session[/blue]\n"
+                                )
                                 acc_items[event.item_id] = (
                                     acc_items[event.item_id] + event.delta
                                 )
 
-                            # Clear and update the audio section for each transcription update
-                            audio_log = self.query_one("#audio-log", RichLog)
-                            audio_log.clear()
+                            # Show current state
+                            audio_log.write("\n[green]Current State:[/green]\n")
+                            audio_log.write(f"Accumulated items: {acc_items}\n")
+                            audio_log.write(
+                                f"Current transcript: {acc_items[event.item_id]}\n"
+                            )
+                            audio_log.refresh()
+
+                            # Update display
+                            audio_log.write("\n[blue]Transcript so far:[/blue]\n")
                             audio_log.write(acc_items[event.item_id])
                             continue
 
-                        if event.type == "response.text.done":
+                        if event.type == "response.audio_transcript.done":
                             if acc_items[event.item_id].strip():
                                 audio_log = self.query_one("#audio-log", RichLog)
                                 transcribed_text = acc_items[event.item_id]
 
-                                # Clear and show full conversation
-                                audio_log.clear()
+                                # First show the transcribed text
                                 audio_log.write("\n[blue]User:[/blue]\n")
                                 audio_log.write(f"{transcribed_text}\n")
+                                audio_log.refresh()
 
                                 # Store user message in context
                                 self.conversation_context.append(
                                     {"role": "user", "content": transcribed_text}
                                 )
 
-                                # If it's a blockchain request, handle it independently
-                                if self.is_blockchain_request(transcribed_text):
+                                # Check for blockchain keywords (this will show debug output)
+                                audio_log.write(
+                                    "\n[yellow]Checking for blockchain keywords...[/yellow]\n"
+                                )
+                                audio_log.refresh()
+                                is_blockchain = self.is_blockchain_request(
+                                    transcribed_text
+                                )
+                                audio_log.refresh()
+
+                                # Now clear and show the conversation fresh
+                                audio_log.clear()
+                                audio_log.write("\n[blue]User:[/blue]\n")
+                                audio_log.write(f"{transcribed_text}\n")
+
+                                if is_blockchain:
                                     # Process CDP request
                                     await self.handle_cdp_request(transcribed_text)
                                 else:
@@ -628,13 +741,29 @@ class AudioChatApp(App):
 
                 # When stopping recording, ensure the audio buffer is committed and response is created
                 conn = await self._get_connection()
+
+                # Debug: Log the response creation process
+                audio_log = self.query_one("#audio-log", RichLog)
+                audio_log.write("\n[yellow]Creating Response[/yellow]\n")
+                audio_log.write("[blue]1. Committing audio buffer...[/blue]\n")
+                audio_log.refresh()
+
                 await conn.input_audio_buffer.commit()
+
+                audio_log.write(
+                    "[blue]2. Creating response with text and audio modalities...[/blue]\n"
+                )
+                audio_log.refresh()
+
                 await conn.response.create(
                     response={
                         "conversation": "auto",
                         "modalities": ["text", "audio"],
                     }
                 )
+
+                audio_log.write("[green]Response creation initiated[/green]\n")
+                audio_log.refresh()
             else:
                 self.should_send_audio.set()
                 status_indicator.is_recording = True
