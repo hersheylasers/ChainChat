@@ -1,86 +1,148 @@
-"use client"
+"use client";
 
-import { useState, useEffect, useRef } from "react"
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { Mic, Send, StopCircle } from "lucide-react"
+import { useState, useEffect, useRef } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Mic, Send, StopCircle } from "lucide-react";
 
 interface ChatbotModalProps {
-  isOpen: boolean
-  onClose: () => void
+  isOpen: boolean;
+  onClose: () => void;
 }
 
 export function ChatbotModal({ isOpen, onClose }: ChatbotModalProps) {
-  const [messages, setMessages] = useState<{ role: string; content: string }[]>([])
-  const [input, setInput] = useState("")
-  const [isRecording, setIsRecording] = useState(false)
-  const [audioUrl, setAudioUrl] = useState<string | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const [messages, setMessages] = useState<{ role: string; content: string }[]>(
+    []
+  );
+  const [input, setInput] = useState("");
+  const [isRecording, setIsRecording] = useState(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
-      setMessages([])
-      setInput("")
-      setIsRecording(false)
-      setAudioUrl(null)
+      setMessages([]);
+      setInput("");
+      setIsRecording(false);
+      setAudioUrl(null);
     }
-  }, [isOpen])
+  }, [isOpen]);
 
   const handleSendMessage = async () => {
     if (input.trim() || audioUrl) {
-      const newMessage = { role: "user", content: input.trim() || "Audio message" }
-      setMessages((prev) => [...prev, newMessage])
-      setInput("")
-      setAudioUrl(null)
+      const newMessage = {
+        role: "user",
+        content: input.trim() || "Audio message",
+      };
+      setMessages((prev) => [...prev, newMessage]);
+      setInput("");
 
       try {
+        // Show loading state
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", content: "Thinking..." },
+        ]);
+
         const response = await fetch("/api/chatbot", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             messages: [...messages, newMessage],
-            audioUrl: audioUrl,
+            audioUrl,
           }),
-        })
-        const data = await response.json()
-        setMessages((prev) => [...prev, { role: "assistant", content: data.response }])
+        });
+
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        // Remove loading message and add actual response
+        setMessages((prev) => [
+          ...prev.slice(0, -1),
+          { role: "assistant", content: data.response },
+        ]);
       } catch (error) {
-        console.error("Error sending message:", error)
+        console.error("Error:", error);
+        setMessages((prev) => [
+          ...prev.slice(0, -1),
+          {
+            role: "assistant",
+            content: "Sorry, I encountered an error. Please try again.",
+          },
+        ]);
+      } finally {
+        setAudioUrl(null);
       }
     }
+  };
+
+  // Add this to your ChatbotModal component
+const processAudioForAPI = async (audioBlob: Blob): Promise<string> => {
+  try {
+    // Create FormData and append audio file
+    const formData = new FormData()
+    formData.append('audio', audioBlob)
+    
+    // Upload to your temporary storage or convert to base64
+    const response = await fetch('/api/upload-audio', {
+      method: 'POST',
+      body: formData
+    })
+    
+    const { url } = await response.json()
+    return url
+  } catch (error) {
+    console.error('Error processing audio:', error)
+    throw error
   }
+}
 
   const handleStartRecording = async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const mediaRecorder = new MediaRecorder(stream)
-      mediaRecorderRef.current = mediaRecorder
-      const audioChunks: Blob[] = []
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      const audioChunks: Blob[] = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        audioChunks.push(event.data)
-      }
+        audioChunks.push(event.data);
+      };
 
-      mediaRecorder.onstop = () => {
+      mediaRecorder.onstop = async () => {
         const audioBlob = new Blob(audioChunks, { type: "audio/wav" })
-        const audioUrl = URL.createObjectURL(audioBlob)
-        setAudioUrl(audioUrl)
+        const localAudioUrl = URL.createObjectURL(audioBlob)
+        setAudioUrl(localAudioUrl)
+        
+        try {
+          const apiAudioUrl = await processAudioForAPI(audioBlob)
+          handleSendMessage()
+        } catch (error) {
+          console.error('Error processing audio:', error)
+        }
       }
 
-      mediaRecorder.start()
-      setIsRecording(true)
+      mediaRecorder.start();
+      setIsRecording(true);
     } catch (error) {
-      console.error("Error starting recording:", error)
+      console.error("Error starting recording:", error);
     }
-  }
+  };
 
   const handleStopRecording = () => {
     if (mediaRecorderRef.current) {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
     }
-  }
+  };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -91,10 +153,17 @@ export function ChatbotModal({ isOpen, onClose }: ChatbotModalProps) {
         <div className="flex flex-col h-[400px]">
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {messages.map((message, index) => (
-              <div key={index} className={`${message.role === "user" ? "text-right" : "text-left"}`}>
+              <div
+                key={index}
+                className={`${
+                  message.role === "user" ? "text-right" : "text-left"
+                }`}
+              >
                 <span
                   className={`inline-block p-2 rounded-lg ${
-                    message.role === "user" ? "bg-blue-500 text-white" : "bg-gray-200 text-gray-800"
+                    message.role === "user"
+                      ? "bg-blue-500 text-white"
+                      : "bg-gray-200 text-gray-800"
                   }`}
                 >
                   {message.content}
@@ -123,11 +192,12 @@ export function ChatbotModal({ isOpen, onClose }: ChatbotModalProps) {
                 </Button>
               )}
             </div>
-            {audioUrl && <audio src={audioUrl} controls className="mt-2 w-full" />}
+            {audioUrl && (
+              <audio src={audioUrl} controls className="mt-2 w-full" />
+            )}
           </div>
         </div>
       </DialogContent>
     </Dialog>
-  )
+  );
 }
-
