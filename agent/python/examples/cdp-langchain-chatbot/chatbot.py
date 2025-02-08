@@ -80,11 +80,29 @@ class AudioChatApp(App):
             border: double rgb(91, 164, 91);
         }
 
-        #bottom-pane {
+        #main-container {
             width: 100%;
             height: 1fr;  /* Take remaining space */
-            border: round rgb(205, 133, 63);
             margin: 1 1;
+            layout: grid;
+            grid-size: 2;  /* Two columns */
+            background: #1a1b26;
+        }
+
+        #audio-section {
+            width: 100%;
+            height: 100%;
+            border: round rgb(205, 133, 63);
+            margin-right: 1;
+            overflow-y: auto;
+            background: #1a1b26;
+        }
+
+        #cdp-section {
+            width: 100%;
+            height: 100%;
+            border: round rgb(91, 164, 91);
+            margin-left: 1;
             overflow-y: auto;
             background: #1a1b26;
         }
@@ -190,28 +208,74 @@ class AudioChatApp(App):
             "network",
             "address",
         ]
-        return any(keyword in text.lower() for keyword in keywords)
+        audio_log = self.query_one("#audio-log", RichLog)
+        cdp_log = self.query_one("#cdp-log", RichLog)
+
+        # Log to both sections for transparency
+        audio_log.write("\n[blue]Checking text for blockchain keywords...[/blue]\n")
+        cdp_log.write("\n[blue]Checking text for blockchain keywords...[/blue]\n")
+
+        # Check each keyword and log matches
+        matched_keywords = []
+        for keyword in keywords:
+            if keyword in text.lower():
+                matched_keywords.append(keyword)
+
+        is_blockchain = len(matched_keywords) > 0
+        if is_blockchain:
+            msg = f"\n[green]Found blockchain keywords: {', '.join(matched_keywords)}[/green]\n"
+            audio_log.write(msg)
+            cdp_log.write(msg)
+        else:
+            msg = "\n[yellow]No blockchain keywords found[/yellow]\n"
+            audio_log.write(msg)
+            cdp_log.write(msg)
+
+        return is_blockchain
 
     async def handle_cdp_request(self, text: str) -> None:
         """Handle CDP agent requests independently of the realtime API connection."""
-        bottom_pane = self.query_one("#bottom-pane", RichLog)
-        bottom_pane.write(
-            "\n[yellow]Detected blockchain request, using CDP agent:[/yellow]\n"
+        cdp_log = self.query_one("#cdp-log", RichLog)
+        audio_log = self.query_one("#audio-log", RichLog)
+
+        # Notify audio section that CDP processing is starting
+        audio_log.write(
+            "\n[yellow]Processing blockchain request in CDP section...[/yellow]\n"
         )
 
+        # Start CDP processing
+        cdp_log.write("\n[yellow]===== CDP Agent Processing =====\n")
+        cdp_log.write("Request: " + text + "\n")
+        cdp_log.write("Initializing CDP agent...[/yellow]\n")
+
         try:
+            # Show agent initialization
+            cdp_log.write("[green]CDP Agent initialized successfully[/green]\n")
+            cdp_log.write("[yellow]Processing request through CDP agent...[/yellow]\n")
+
             cdp_response = ""
+            chunk_count = 0
             for chunk in self.agent_executor.stream(
                 {"messages": [HumanMessage(content=text)]},
                 self.config,
             ):
+                chunk_count += 1
+                cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
+
                 if "agent" in chunk:
                     response_text = chunk["agent"]["messages"][0].content
                     cdp_response += response_text
-                    bottom_pane.write(response_text)
+                    cdp_log.write("[green]Agent Response:[/green]\n")
+                    cdp_log.write(response_text + "\n")
                 elif "tools" in chunk:
                     tool_text = chunk["tools"]["messages"][0].content
-                    bottom_pane.write(f"\n[yellow]Using Tool:[/yellow] {tool_text}\n")
+                    cdp_log.write(f"[yellow]Using Tool:[/yellow] {tool_text}\n")
+                else:
+                    cdp_log.write(f"[blue]Other chunk type:[/blue] {chunk}\n")
+
+            # Show completion status
+            cdp_log.write("\n[green]CDP processing completed[/green]\n")
+            cdp_log.write(f"Total chunks processed: {chunk_count}\n")
 
             # Store CDP response in context
             self.conversation_context.append(
@@ -221,22 +285,38 @@ class AudioChatApp(App):
                     "agent": "cdp",
                 }
             )
+            cdp_log.write("\n[blue]CDP response added to conversation context[/blue]\n")
 
-            bottom_pane.write("\n-------------------\n")
+            # Notify audio section that CDP processing is complete
+            audio_log.write(
+                "\n[green]CDP processing complete. See CDP section for details.[/green]\n"
+            )
+
+            cdp_log.write("\n[yellow]===== End CDP Agent Processing =====\n")
         except Exception as e:
-            error_msg = f"\n[red]Error processing blockchain request: {str(e)}[/red]\n"
-            bottom_pane.write(error_msg)
-            bottom_pane.write("\n-------------------\n")
+            error_msg = f"\n[red]Error processing blockchain request:[/red]\n"
+            cdp_log.write(error_msg)
+            cdp_log.write(f"Error type: {type(e)}\n")
+            cdp_log.write(f"Error message: {str(e)}\n")
+            cdp_log.write("\n[yellow]===== End CDP Agent Processing =====\n")
+
+            # Notify audio section of error
+            audio_log.write(
+                "\n[red]Error in CDP processing. See CDP section for details.[/red]\n"
+            )
 
     async def handle_message(self, message: str) -> None:
         """Handle text messages from the input field."""
         if not message.strip():
             return
 
-        # Display user message
-        bottom_pane = self.query_one("#bottom-pane", RichLog)
-        bottom_pane.write("\n[blue]User Text:[/blue]\n")
-        bottom_pane.write(f"{message}\n")
+        # Get log panes
+        audio_log = self.query_one("#audio-log", RichLog)
+        cdp_log = self.query_one("#cdp-log", RichLog)
+
+        # Display user message in audio section
+        audio_log.write("\n[blue]User Text:[/blue]\n")
+        audio_log.write(f"{message}\n")
 
         try:
             connection = await self._get_connection()
@@ -255,7 +335,9 @@ class AudioChatApp(App):
                 }
             )
         except Exception as e:
-            bottom_pane.write(f"\n[red]Error sending message: {str(e)}[/red]\n")
+            error_msg = f"\n[red]Error sending message: {str(e)}[/red]\n"
+            audio_log.write(error_msg)
+            cdp_log.write(error_msg)  # Show error in both sections
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
@@ -281,26 +363,51 @@ class AudioChatApp(App):
             with Container(id="input-container"):
                 yield Input(placeholder="Type a message...", id="message-input")
                 yield Button("Send", id="send-button", variant="primary")
-            yield RichLog(id="bottom-pane", wrap=True, highlight=True, markup=True)
+            with Container(id="main-container"):
+                with Container(id="audio-section"):
+                    yield RichLog(
+                        id="audio-log", wrap=True, highlight=True, markup=True
+                    )
+                with Container(id="cdp-section"):
+                    yield RichLog(id="cdp-log", wrap=True, highlight=True, markup=True)
 
     async def on_mount(self) -> None:
+        # Show CDP agent initialization status
+        cdp_log = self.query_one("#cdp-log", RichLog)
+        cdp_log.write("[yellow]===== CDP Agent Status =====\n")
+        cdp_log.write("Agent Type: CDP (Coinbase Developer Platform) AgentKit\n")
+        cdp_log.write(
+            "Wallet Data: "
+            + (
+                "Loaded from file"
+                if os.path.exists(wallet_data_file)
+                else "New wallet will be created"
+            )
+            + "\n"
+        )
+        cdp_log.write("Status: Ready for blockchain operations\n")
+        cdp_log.write(
+            "Supported operations: wallet, tokens, NFTs, contracts, transactions\n"
+        )
+        cdp_log.write("===== End CDP Agent Status =====\n\n")
+
         self.run_worker(self.handle_realtime_connection())
         self.run_worker(self.send_mic_audio())
 
     async def handle_realtime_connection(self) -> None:
-        bottom_pane = self.query_one("#bottom-pane", RichLog)
+        audio_log = self.query_one("#audio-log", RichLog)
         max_retries = 10
         retry_count = 0
 
         while retry_count < max_retries:
             try:
                 if retry_count > 0:
-                    bottom_pane.write(
+                    audio_log.write(
                         f"[yellow]Retrying connection (attempt {retry_count + 1}/{max_retries})...[/yellow]\n"
                     )
                     await asyncio.sleep(2)  # Wait before retry
                 else:
-                    bottom_pane.write("[yellow]Connecting to OpenAI API...[/yellow]\n")
+                    audio_log.write("[yellow]Connecting to OpenAI API...[/yellow]\n")
 
                 async with self.client.beta.realtime.connect(
                     model="gpt-4o-realtime-preview"
@@ -309,8 +416,8 @@ class AudioChatApp(App):
                     self.connected.set()
 
                     # Show connection status
-                    bottom_pane.write("[green]Connected to OpenAI API[/green]\n")
-                    bottom_pane.write("Ready to record. Press K to start, Q to quit.\n")
+                    audio_log.write("[green]Connected to OpenAI API[/green]\n")
+                    audio_log.write("Ready to record. Press K to start, Q to quit.\n")
 
                     await conn.session.update(
                         session={
@@ -341,6 +448,12 @@ class AudioChatApp(App):
                             self.session = event.session
                             continue
 
+                        if event.type == "response.text.delta":
+                            # Show assistant's response as it comes in
+                            audio_log = self.query_one("#audio-log", RichLog)
+                            audio_log.write(event.delta)
+                            continue
+
                         if event.type == "response.audio.delta":
                             if event.item_id != self.last_audio_item_id:
                                 self.audio_player.reset_frame_count()
@@ -360,21 +473,21 @@ class AudioChatApp(App):
                                     acc_items[event.item_id] + event.delta
                                 )
 
-                            # Show the latest transcription without clearing history
-                            bottom_pane = self.query_one("#bottom-pane", RichLog)
-                            bottom_pane.write(
-                                f"\r[blue]Current Input:[/blue] {acc_items[event.item_id]}\n"
-                            )
+                            # Clear and update the audio section for each transcription update
+                            audio_log = self.query_one("#audio-log", RichLog)
+                            audio_log.clear()
+                            audio_log.write(acc_items[event.item_id])
                             continue
 
                         if event.type == "response.text.done":
                             if acc_items[event.item_id].strip():
-                                bottom_pane = self.query_one("#bottom-pane", RichLog)
+                                audio_log = self.query_one("#audio-log", RichLog)
                                 transcribed_text = acc_items[event.item_id]
 
-                                # Display transcribed text
-                                bottom_pane.write("\n[blue]Transcribed Text:[/blue]\n")
-                                bottom_pane.write(f"{transcribed_text}\n")
+                                # Clear and show full conversation
+                                audio_log.clear()
+                                audio_log.write("\n[blue]User:[/blue]\n")
+                                audio_log.write(f"{transcribed_text}\n")
 
                                 # Store user message in context
                                 self.conversation_context.append(
@@ -389,8 +502,8 @@ class AudioChatApp(App):
                                     )
                                 else:
                                     # Let the voice agent handle non-blockchain requests
-                                    bottom_pane.write(
-                                        "\n[green]Assistant Response:[/green]\n"
+                                    audio_log.write(
+                                        "\n[green]Assistant:[/green] (Processing response...)\n"
                                     )
                                     # The response will come through the normal realtime API flow
                             continue
@@ -401,7 +514,7 @@ class AudioChatApp(App):
             except asyncio.TimeoutError:
                 retry_count += 1
                 if retry_count >= max_retries:
-                    bottom_pane.write(
+                    audio_log.write(
                         "[red]Connection timed out after multiple attempts. Please check your internet connection and try again.[/red]\n"
                     )
                     await asyncio.sleep(2)  # Give user time to read the message
@@ -415,7 +528,7 @@ class AudioChatApp(App):
             except Exception as e:
                 retry_count += 1
                 if retry_count >= max_retries:
-                    bottom_pane.write(
+                    audio_log.write(
                         f"[red]Connection error after multiple attempts: {str(e)}[/red]\n"
                     )
                     await asyncio.sleep(2)  # Give user time to read the message
@@ -467,8 +580,8 @@ class AudioChatApp(App):
                 connection = await self._get_connection()
                 if not sent_audio:
                     # Start new recording without clearing history
-                    bottom_pane = self.query_one("#bottom-pane", RichLog)
-                    bottom_pane.write("\n[blue]Starting new recording...[/blue]\n")
+                    audio_log = self.query_one("#audio-log", RichLog)
+                    audio_log.write("\n[blue]Starting new recording...[/blue]\n")
 
                     # Cancel any previous response and start fresh
                     await connection.response.cancel()
@@ -526,26 +639,44 @@ def test_microphone():
 
 def initialize_agent():
     """Initialize the agent with CDP Agentkit."""
+    print("\n[yellow]Initializing CDP Agent...[/yellow]")
+
+    print("Creating LLM instance...")
     llm = ChatOpenAI()
 
+    print("Loading wallet data...")
     wallet_data = None
     if os.path.exists(wallet_data_file):
+        print(f"Found existing wallet data at {wallet_data_file}")
         with open(wallet_data_file) as f:
             wallet_data = f.read()
+    else:
+        print("No existing wallet data found, will create new wallet")
 
     # Configure CDP Agentkit Langchain Extension.
+    print("Configuring CDP Agentkit...")
     values = {}
     if wallet_data is not None:
         values = {"cdp_wallet_data": wallet_data}
+        print("Using existing wallet data")
+    else:
+        print("Starting with fresh wallet")
 
+    print("Creating CDP Agentkit wrapper...")
     agentkit = CdpAgentkitWrapper(**values)
+
+    print("Exporting wallet data...")
     wallet_data = agentkit.export_wallet()
     with open(wallet_data_file, "w") as f:
         f.write(wallet_data)
+    print(f"Wallet data saved to {wallet_data_file}")
 
+    print("Creating CDP toolkit and loading tools...")
     cdp_toolkit = CdpToolkit.from_cdp_agentkit_wrapper(agentkit)
     tools = cdp_toolkit.get_tools()
+    print(f"Loaded {len(tools)} CDP tools")
 
+    print("Setting up agent memory and config...")
     memory = MemorySaver()
     config = {"configurable": {"thread_id": "CDP Agentkit Chatbot Example!"}}
 
