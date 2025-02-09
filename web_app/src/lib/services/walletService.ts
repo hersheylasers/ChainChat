@@ -63,6 +63,7 @@ export class WalletService {
       walletId: walletAddress,
       caip2: 'eip155:84532',
       transaction: {
+        // @ts-ignore
         method: 'eth_getBalance',
         params: [walletAddress, 'latest']
       }
@@ -76,6 +77,7 @@ export class WalletService {
     return privyClient.walletApi.ethereum.sendTransaction({
       walletId: walletAddress,
       caip2: 'eip155:84532',
+      // @ts-ignore
       transaction: tx
     });
   }

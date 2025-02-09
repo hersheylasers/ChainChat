@@ -5,13 +5,13 @@ import 'dotenv/config';
 import { Console } from 'console';
 
 const privyClient = new PrivyClient(
-    process.env.PRIVY_APP_ID!,
-    process.env.PRIVY_APP_SECRET!,
-    {
-        walletApi: {
-            authorizationPrivateKey: process.env.PRIVY_AUTHORIZATION_KEY!,
-        }
+  process.env.PRIVY_APP_ID!,
+  process.env.PRIVY_APP_SECRET!,
+  {
+    walletApi: {
+      authorizationPrivateKey: process.env.PRIVY_AUTHORIZATION_KEY!,
     }
+  }
 );
 
 console.log(process.env.PRIVY_APP_ID);
@@ -63,23 +63,26 @@ export default async function handler(
 
     // Sign and send transaction using walletApi
     const response = await privyClient.walletApi.rpc({
-        walletId: userId,
-        method: 'eth_sendTransaction',
-        caip: 'eip155:11155111',
-        params: {
-            transaction: {
-                to: recipient,
-                value: amount,
-                gas: '0x5208',
-            }
+      walletId: userId,
+      method: 'eth_sendTransaction',
+      caip: 'eip155:11155111',
+      params: {
+        transaction: {
+          // @ts-ignore
+          to: recipient,
+          // @ts-ignore
+          value: amount,
+          gas: '0x5208',
         }
+      }
     });
 
     if ('data' in response) {
-        return res.status(200).json({
-            success: true,
-            transactionHash: response.data,
-        });
+      return res.status(200).json({
+        success: true,
+        // @ts-ignore
+        transactionHash: response.data,
+      });
     }
 
   } catch (error) {
@@ -92,15 +95,15 @@ export default async function handler(
 }
 
 async function verifyUserAuth(req: NextApiRequest): Promise<string | null> {
-    const authHeader = req.headers.authorization?.replace('Bearer','');
-    if (!authHeader) return null;
+  const authHeader = req.headers.authorization?.replace('Bearer', '');
+  if (!authHeader) return null;
 
-    try {
-        const token = authHeader.split(' ')[1];
-        const verifiedUser = await privyClient.verifyAuthToken(token);
-        return verifiedUser.userId;
-    } catch (error) {
-        console.error('Token verification error:', error);
-        return null;
-    }
+  try {
+    const token = authHeader.split(' ')[1];
+    const verifiedUser = await privyClient.verifyAuthToken(token);
+    return verifiedUser.userId;
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return null;
+  }
 }

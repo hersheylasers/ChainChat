@@ -58,8 +58,10 @@ export const PrivyWalletService = {
       walletId: walletsResponse.data[0].id,
       caip2: 'eip155:84532',
       transaction: {
+        // @ts-ignore
         to: transaction.to,
 
+        // @ts-ignore
         value: transaction.value,
         chainId: 84532,
       },
