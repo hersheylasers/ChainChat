@@ -278,16 +278,16 @@ class AudioChatApp(App):
                     self.config,
                 ):
                     chunk_count += 1
-                    cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
-                    cdp_log.write(f"Raw chunk: {chunk}\n")
-                    cdp_log.refresh()
+                    # cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
+                    # cdp_log.write(f"Raw chunk: {chunk}\n")
+                    # cdp_log.refresh()
 
                     if "agent" in chunk:
                         response_text = chunk["agent"]["messages"][0].content
                         cdp_response += response_text
                         cdp_log.write("[green]Agent Response:[/green]\n")
                         cdp_log.write(response_text + "\n")
-                        cdp_log.write(f"Full response so far: {cdp_response}\n")
+                        # cdp_log.write(f"Full response so far: {cdp_response}\n")
                         cdp_log.refresh()
                     elif "tools" in chunk:
                         tool_data = chunk["tools"]
@@ -295,10 +295,10 @@ class AudioChatApp(App):
                         tool_input = tool_data.get("tool_input", {})
                         tool_output = tool_data.get("output", "No output")
 
-                        cdp_log.write(f"\n[yellow]Using Tool: {tool_name}[/yellow]\n")
-                        cdp_log.write(f"Tool input: {tool_input}\n")
-                        cdp_log.write(f"Tool output: {tool_output}\n")
-                        cdp_log.refresh()
+                        # cdp_log.write(f"\n[yellow]Using Tool: {tool_name}[/yellow]\n")
+                        # cdp_log.write(f"Tool input: {tool_input}\n")
+                        # cdp_log.write(f"Tool output: {tool_output}\n")
+                        # cdp_log.refresh()
 
                         # Add tool result to response
                         tool_result = f"\nTool {tool_name} result: {tool_output}"
@@ -320,7 +320,7 @@ class AudioChatApp(App):
 
             # Show completion status
             cdp_log.write("\n[green]CDP processing completed[/green]\n")
-            cdp_log.write(f"Total chunks processed: {chunk_count}\n")
+            # cdp_log.write(f"Total chunks processed: {chunk_count}\n")
 
             # Store CDP response in context
             self.conversation_context.append(
@@ -481,7 +481,7 @@ class AudioChatApp(App):
                             "instructions": (
                                 "You are an AI assistant with blockchain capabilities through the CDP (Coinbase Developer Platform) AgentKit. "
                                 "When users ask about blockchain operations like checking balances, deploying contracts, or transferring tokens, "
-                                "acknowledge their request and let them know you'll process it using the CDP tools. "
+                                "acknowledge their request and let them know you'll process it using the CDP tools. Your response will be passed to the CDP Agent, so you must repeat my question back to me and include enough context for the agent to understand the task."
                                 "For non-blockchain requests, respond normally. Be concise and helpful. "
                                 "If you detect a blockchain request, let the user know you're passing it to the CDP agent for processing."
                             ),
@@ -875,6 +875,7 @@ def initialize_agent():
 
     state_modifier = (
         "You are a blockchain agent with access to CDP (Coinbase Developer Platform) tools. "
+        "You are an assistant to another agent, and you will be able to see the response from the other agent to the User, but not the User prompt directly. Based on the Agent response, guess what the User requested, and use a tool to give an answer."
         "IMPORTANT: You must ALWAYS use your tools when handling blockchain requests. "
         "Here's how to handle requests:\n"
         "1. For ANY blockchain-related request, FIRST use get_wallet_details to check the network.\n"
