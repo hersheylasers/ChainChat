@@ -1,25 +1,93 @@
-# AI Agent with Privy Server Wallets Integration
+# ChainChat
 
-This project demonstrates how to build an AI agent that can execute blockchain transactions using Privy server wallets for transaction signing and embedded wallets for user authentication.
+A multimodal interface for managing personal finance portfolios on the blockchain, making complex financial products and blockchain interactions more accessible through natural language processing and voice commands.
+
+## Overview
+
+This project simplifies blockchain-based personal finance management by providing an intuitive interface powered by AI agents. Users can interact through voice or text to manage their portfolio, learn about financial concepts, and execute blockchain transactions seamlessly.
 
 ## Features
 
-- 🤖 AI Agent for processing user commands
-- 🔐 Embedded wallets for user authentication
-- 💼 Privy server wallets for secure transaction signing
-- 🔄 Automatic wallet mapping and management
-- 🎯 Built for Privy's track prize eligibility
+- 🎙️ Multimodal Interface
+  - Voice commands via OpenAI's GPT-4o realtime model
+  - Text-based interaction for traditional interface users
+  - Natural language processing for financial queries
+
+- 🤖 Dual Agent Architecture
+  - GPT-4o realtime for voice interpretation and user interaction
+  - Coinbase AgentKit integration for blockchain operations
+  - Parallel agent processing for handling different command types
+
+- 🔗 Blockchain Integration
+  - Base-Sepolia network integration for efficient transactions
+  - Low-cost transaction processing
+  - Automated portfolio management on-chain
+  - Smart contract interaction capabilities
+
+- 🔐 Secure Authentication & Wallet Management
+  - Privy integration for streamlined wallet creation
+  - Embedded wallets for user authentication
+  - Secure transaction signing with Privy server wallets
+  - Automated wallet mapping and management
 
 ## Tech Stack
+- Next.js application
+- Privy integration for wallet management
+- Voice and text input processing
+- Coinbase Agentkit for blockchain operations
+- OpenAI GPT-4o realtime model for audio interpretation
+- Base-Sepolia network integration
+- Optional Gaia node for local processing
 
-- Next.js (Frontend Framework)
-- TypeScript
-- Coinbase CDP AgentKit
-- Privy Server Wallets
-- Hardhat (Smart Contract Development)
-- Supabase (Database ORM)
-- Ethers.js
+### Agent Communication
+The system employs a dual-agent architecture where:
+1. GPT-4o realtime agent handles user interactions and voice processing
+2. Coinbase Development Platform (CDP) agent monitors for blockchain-related context
+3. Agents operate in parallel to process user requests
 
+## Smart Contract Architecture
+
+### Portfolio Contract
+
+The core smart contract enables users to:
+- Deposit and withdraw ETH
+- Deposit and withdraw ERC20 tokens
+- Swap between supported tokens using Uniswap V3
+- Track portfolio value using Chainlink price feeds
+- Manage token approvals and price feed updates
+
+### Supported Tokens
+- WETH (0x4200000000000000000000000000000000000006)
+- USDC (0x036cBD53842C5426634e7929541eC2018491CF43)
+- cbETH (0x7c6b91D9Be155A6Db01f749217d76fF02A7227F2)
+
+### Core Contract Features
+
+#### ETH and Token Management
+```solidity
+function depositEth() external payable
+function withdrawEth(uint256 amount) external nonReentrant
+function depositToken(address token, uint256 amount) external nonReentrant
+function withdrawToken(address token, uint256 amount) external nonReentrant
+```
+
+#### Portfolio Management
+```solidity
+function swapExactInputSingle(
+    address tokenIn,
+    address tokenOut,
+    uint256 amountIn,
+    uint256 amountOutMinimum
+) external nonReentrant returns (uint256 amountOut)
+function getPortfolioValue(address user) external view returns (uint256 totalValueUsd)
+```
+
+### Security Features
+- ReentrancyGuard implementation
+- Owner-controlled price feed updates
+- Balance and slippage protection
+- Price feed staleness checks
+- Secure token transfer handling
 
 ## Prerequisites
 
@@ -67,6 +135,8 @@ npx prisma db push
 ├── components/
 │   ├── WalletAgent.tsx       # AI agent component
 │   └── WalletHandler.tsx     # Wallet management component
+├── contracts/
+│   └── Portfolio.sol         # Main portfolio smart contract
 ├── lib/
 │   ├── privy.ts             # Privy server wallet utilities
 │   ├── wallet.ts            # Wallet management utilities
@@ -110,23 +180,6 @@ model User {
 }
 ```
 
-### 3. API Routes
-
-```typescript
-// Example API route for wallet actions
-export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  const { userId, action, transaction } = req.body;
-
-  // Handle different wallet actions
-  switch (action) {
-    case 'create':
-      const wallet = await PrivyWalletService.createWallet(userId);
-      return res.status(200).json(wallet);
-    // ... other actions
-  }
-}
-```
-
 ## Usage Examples
 
 1. **Create a Server Wallet**
@@ -157,11 +210,18 @@ The AI agent can process natural language commands like:
 
 ## Security Considerations
 
-1. Keep your Privy API key secure
-2. Never expose server wallet private keys
-3. Implement proper rate limiting
-4. Add transaction amount limits
-5. Verify user authentication before actions
+1. Smart Contract Security
+   - Reentrancy protection
+   - Balance verification
+   - Price feed validation
+   - Slippage protection
+
+2. Application Security
+   - Secure API key storage
+   - Private key protection
+   - Rate limiting
+   - Transaction limits
+   - User authentication verification
 
 ## Development
 
@@ -198,3 +258,4 @@ MIT
 For questions about:
 - Privy integration: Check [Privy Documentation](https://docs.privy.io)
 - CDP AgentKit: Visit [CDP Documentation](https://docs.cdp.coinbase.com)
+- Smart Contract: [View on BaseScan](https://sepolia.basescan.org/address/0x8473B5D83Cdae718E571F8583aA208258E594B9f)
