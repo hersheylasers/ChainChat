@@ -235,6 +235,7 @@ class AudioChatApp(App):
 
     async def handle_cdp_request(self, text: str) -> None:
         """Handle CDP agent requests independently of the realtime API connection."""
+
         cdp_log = self.query_one("#cdp-log", RichLog)
         audio_log = self.query_one("#audio-log", RichLog)
         # Notify audio section that CDP processing is starting
@@ -243,15 +244,16 @@ class AudioChatApp(App):
         )
         # Start CDP processing
         cdp_log.write("\n[yellow]===== CDP Agent Processing =====\n")
-        cdp_log.write("Request: " + text + "\n")
-        cdp_log.write("Initializing CDP agent...[/yellow]\n")
+
+        cdp_log.write("Request: " + text + ".\n")
+        # cdp_log.write("\n[yellow]Initializing CDP agent...\n")
 
         try:
             # Show agent initialization and debug info
             cdp_log.write("[green]CDP Agent initialized successfully[/green]\n")
             cdp_log.write("[yellow]Processing request through CDP agent...[/yellow]\n")
             cdp_log.write(f"[blue]Request text: {text}[/blue]\n")
-            cdp_log.write("[blue]Agent config: " + str(self.config) + "[/blue]\n")
+            # cdp_log.write("[blue]Agent config: " + str(self.config) + "[/blue]\n")
             cdp_log.refresh()
 
             cdp_response = ""
@@ -260,6 +262,7 @@ class AudioChatApp(App):
             # Process agent response
             cdp_log.write("\n[yellow]Starting CDP Agent Stream[/yellow]\n")
             cdp_log.write(f"Input text: {text}\n")
+
             cdp_log.refresh()
 
             try:
@@ -270,7 +273,7 @@ class AudioChatApp(App):
                     "Show me the actual results of using the tools."
                 )
 
-                async for chunk in self.agent_executor.stream(
+                for chunk in self.agent_executor.stream(
                     {"messages": [HumanMessage(content=prompt)]},
                     self.config,
                 ):
