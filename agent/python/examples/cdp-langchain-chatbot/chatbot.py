@@ -829,6 +829,11 @@ def initialize_agent():
 
     print("Creating LLM instance...")
     llm = ChatOpenAI()
+    # llm = ChatOpenAI(
+    #     model="Llama-3.2-3B-Instruct",
+    #     api_key=GAIA_API_KEY,
+    #     base_url=GAIA_BASE_URL,
+    # )
 
     print("Loading wallet data...")
     wallet_data = None
