@@ -6,13 +6,13 @@ import path from "path"
 export const runtime = 'nodejs'
 export const maxDuration = 300
 
-export async function POST(req: NextRequest) {
+export async function POST(req: NextRequest): Promise<Response> {
   try {
     const { messages, audioUrl } = await req.json()
-    
+
     const scriptPath = path.join(process.cwd(), "python", "chatbot.py")
-    
-    return new Promise((resolve, reject) => {
+
+    return await new Promise((resolve, reject) => {
       const pythonProcess = spawn("python", [scriptPath], {
         env: {
           ...process.env,
@@ -20,22 +20,22 @@ export async function POST(req: NextRequest) {
           MODE: 'chat'
         }
       })
-      
+
       let result = ""
       let error = ""
-      
+
       pythonProcess.stdout.on("data", (data) => {
         const output = data.toString()
         console.log('Python output:', output)
         result += output
       })
-      
+
       pythonProcess.stderr.on("data", (data) => {
         const errorOutput = data.toString()
         console.error('Python error:', errorOutput)
         error += errorOutput
       })
-      
+
       pythonProcess.on("close", (code) => {
         console.log(`Python process exited with code ${code}`)
         if (code !== 0) {
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
               .filter(line => !line.includes('-------------------'))
               .join('\n')
               .trim()
-            
+
             resolve(NextResponse.json({ response: actualResponse }))
           } catch (parseError) {
             reject(NextResponse.json(
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
           }
         }
       })
-      
+
       pythonProcess.on("error", (err) => {
         console.error('Python process error:', err)
         reject(NextResponse.json(
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
         audioUrl,
         mode: 'chat'
       }) + '\n'
-      
+
       pythonProcess.stdin.write(input)
       pythonProcess.stdin.end()
     })
