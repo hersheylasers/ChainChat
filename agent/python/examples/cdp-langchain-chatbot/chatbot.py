@@ -187,7 +187,6 @@ class AudioChatApp(App):
         self.last_audio_item_id = None
         self.should_send_audio = asyncio.Event()
         self.connected = asyncio.Event()
-        self.cdp_processing = asyncio.Event()  # Flag to indicate CDP processing
         self.connection = None
         self.conversation_context = []  # Track conversation history
 
@@ -238,26 +237,12 @@ class AudioChatApp(App):
         """Handle CDP agent requests independently of the realtime API connection."""
         cdp_log = self.query_one("#cdp-log", RichLog)
         audio_log = self.query_one("#audio-log", RichLog)
-
-        # First stop any active recording
-        was_recording = self.should_send_audio.is_set()
-        if was_recording:
-            self.should_send_audio.clear()
-            # Give time for any in-flight audio operations to complete
-            await asyncio.sleep(5)
-
-        # Set CDP processing flag to pause audio operations
-        self.cdp_processing.set()
-
         # Notify audio section that CDP processing is starting
         audio_log.write(
             "\n[yellow]Processing blockchain request in CDP section...[/yellow]\n"
         )
-
         # Start CDP processing
-        cdp_log.write(
-            "\n[yellow]===== CDP Agent Processing =====\n"
-        )  # This is the last thing the cdp agent posts. After this, the audio agent loses connection. Why?
+        cdp_log.write("\n[yellow]===== CDP Agent Processing =====\n")
         cdp_log.write("Request: " + text + "\n")
         cdp_log.write("Initializing CDP agent...[/yellow]\n")
 
@@ -272,14 +257,9 @@ class AudioChatApp(App):
             cdp_response = ""
             chunk_count = 0
 
-            # Debug: Verify agent executor is callable
-            cdp_log.write("[blue]Calling CDP agent executor...[/blue]\n")
-            cdp_log.refresh()
-
             # Process agent response
             cdp_log.write("\n[yellow]Starting CDP Agent Stream[/yellow]\n")
             cdp_log.write(f"Input text: {text}\n")
-            cdp_log.write(f"Config: {self.config}\n")
             cdp_log.refresh()
 
             try:
@@ -356,12 +336,6 @@ class AudioChatApp(App):
 
             cdp_log.write("\n[yellow]===== End CDP Agent Processing =====\n")
 
-            # Clear CDP processing flag to allow audio operations to resume
-            self.cdp_processing.clear()
-
-            # Restore recording state if it was active before
-            if was_recording:
-                self.should_send_audio.set()
         except Exception as e:
             error_msg = f"\n[red]Error processing blockchain request:[/red]\n"
             cdp_log.write(error_msg)
@@ -374,13 +348,6 @@ class AudioChatApp(App):
                 "\n[red]Error in CDP processing. See CDP section for details.[/red]\n"
             )
 
-            # Clear CDP processing flag even if there was an error
-            self.cdp_processing.clear()
-
-            # Restore recording state if it was active before
-            if was_recording:
-                self.should_send_audio.set()
-
     async def handle_message(self, message: str) -> None:
         """Handle text messages from the input field."""
         if not message.strip():
@@ -391,7 +358,7 @@ class AudioChatApp(App):
         cdp_log = self.query_one("#cdp-log", RichLog)
 
         # Display user message in audio section
-        audio_log.write("\n[blue]Agent Text:[/blue]\n")
+        audio_log.write("\n[blue]User:[/blue]\n")
         audio_log.write(f"{message}\n")
 
         try:
@@ -404,49 +371,26 @@ class AudioChatApp(App):
             audio_log.refresh()
 
             if is_blockchain:
-                # Set CDP processing flag to pause audio operations
-                self.cdp_processing.set()
-
-                try:
-                    # Process CDP request in the CDP section
-                    await self.handle_cdp_request(message)
-
-                    # For blockchain requests, just process in CDP section without audio acknowledgment
-                    audio_log.write("\n[yellow]Processing in CDP section...[/yellow]\n")
-                    audio_log.refresh()
-                finally:
-                    # Always clear CDP processing flag
-                    self.cdp_processing.clear()
-
-                # Commented out audio response to avoid connection issues
-                # await connection.response.create(
-                #     response={
-                #         "conversation": "auto",
-                #         "modalities": ["text"],
-                #         "instructions": "I understand you have a blockchain request. I'll process that in the CDP section on the right. Please check there for the results of the blockchain operations.",
-                #     }
-                # )
-            else:
-                # For non-blockchain requests, let the audio agent handle it normally
-                audio_log.write("\n[yellow]Creating API Response[/yellow]\n")
-                audio_log.write("[blue]Sending request to realtime API...[/blue]\n")
+                # For blockchain requests, just process in CDP section
+                audio_log.write("\n[yellow]Processing in CDP section...[/yellow]\n")
                 audio_log.refresh()
 
-                # await connection.response.create(
-                #     response={
-                #         "conversation": "auto",
-                #         "modalities": ["text"],
-                #         "instructions": message,
-                #     }
-                # )
+                # Start CDP processing in background without affecting audio
+                asyncio.create_task(self.handle_cdp_request(message))
+            else:
+                # For non-blockchain requests, let the audio agent handle it normally
+                await connection.response.create(
+                    response={
+                        "conversation": "auto",
+                        "modalities": ["text", "audio"],
+                        "instructions": message,
+                    }
+                )
 
-            audio_log.write("[green]Response request sent successfully[/green]\n")
-            audio_log.write("Waiting for response events...\n")
-            audio_log.refresh()
         except Exception as e:
-            error_msg = f"\n[red]Error sending message: {str(e)}[/red]\n"
+            error_msg = f"\n[red]Error: {str(e)}[/red]\n"
             audio_log.write(error_msg)
-            cdp_log.write(error_msg)  # Show error in both sections
+            cdp_log.write(error_msg)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
@@ -719,31 +663,17 @@ class AudioChatApp(App):
                                 audio_log.write(f"{transcribed_text}\n")
 
                                 if is_blockchain:
-                                    # For blockchain requests, just process in CDP section without audio acknowledgment
+                                    # For blockchain requests, just process in CDP section
                                     audio_log.write(
                                         "\n[yellow]Processing in CDP section...[/yellow]\n"
                                     )
                                     audio_log.refresh()
 
-                                    # Commented out audio response to avoid connection issues
-                                    # conn = await self._get_connection()
-                                    # await conn.response.create(
-                                    #     response={
-                                    #         "conversation": "auto",
-                                    #         "modalities": ["text"],
-                                    #         "instructions": "I understand you have a blockchain request. I'll process that in the CDP section on the right. Please check there for the results of the blockchain operations.",
-                                    #     }
-                                    # )
-
-                                    # Set CDP processing flag to pause audio operations
-                                    self.cdp_processing.set()
-
-                                    try:
-                                        # Process CDP request separately
-                                        await self.handle_cdp_request(transcribed_text)
-                                    finally:
-                                        # Always clear CDP processing flag
-                                        self.cdp_processing.clear()
+                                    # Start CDP processing in background without affecting audio
+                                    asyncio.create_task(
+                                        self.handle_cdp_request(transcribed_text)
+                                    )
+                                    continue
                                 else:
                                     # Let the voice agent handle non-blockchain requests
                                     audio_log.write(
@@ -827,24 +757,10 @@ class AudioChatApp(App):
                     audio_log = self.query_one("#audio-log", RichLog)
                     audio_log.write("\n[blue]Starting new recording...[/blue]\n")
 
-                    # Cancel any previous response and start fresh
+                    # Start new recording
                     audio_log.write(
                         "\n[yellow]Starting New Recording Session[/yellow]\n"
                     )
-                    audio_log.write("[blue]Cancelling previous response...[/blue]\n")
-                    audio_log.refresh()
-
-                    # Commented out response cancel to avoid connection issues
-                    # try:
-                    #     await connection.response.cancel()
-                    #     audio_log.write(
-                    #         "[green]Previous response cancelled successfully[/green]\n"
-                    #     )
-                    # except Exception as e:
-                    #     audio_log.write(
-                    #         f"[red]Error cancelling previous response: {str(e)}[/red]\n"
-                    #     )
-
                     audio_log.write("Ready for new audio input\n")
                     audio_log.refresh()
                     sent_audio = True
@@ -895,32 +811,10 @@ class AudioChatApp(App):
                 self.should_send_audio.clear()
                 status_indicator.is_recording = False
 
-                # When stopping recording, ensure the audio buffer is committed and response is created
-                conn = await self._get_connection()
-
-                # Debug: Log the response creation process
+                # When stopping recording, check if we're in the middle of CDP processing
                 audio_log = self.query_one("#audio-log", RichLog)
-                audio_log.write("\n[yellow]Creating Response[/yellow]\n")
-                audio_log.write("[blue]1. Committing audio buffer...[/blue]\n")
+                audio_log.write("\n[yellow]Stopping recording...[/yellow]\n")
                 audio_log.refresh()
-
-                # await conn.input_audio_buffer.commit()
-
-                # Commented out response creation to avoid connection issues
-                # audio_log.write(
-                #     "[blue]2. Creating response with text and audio modalities...[/blue]\n"
-                # )
-                # audio_log.refresh()
-
-                # await conn.response.create(
-                #     response={
-                #         "conversation": "auto",
-                #         "modalities": ["text", "audio"],
-                #     }
-                # )
-
-                # audio_log.write("[green]Response creation initiated[/green]\n")
-                # audio_log.refresh()
             else:
                 self.should_send_audio.set()
                 status_indicator.is_recording = True
