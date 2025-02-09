@@ -915,14 +915,6 @@ class AudioChatApp(App):
                 status_indicator.is_recording = True
 
 
-def test_microphone():
-    """Test microphone by launching the audio chat app briefly."""
-    agent_executor, config = initialize_agent()
-    app = AudioChatApp(agent_executor, config)
-    app.run()
-    return True
-
-
 def initialize_agent():
     """Initialize the agent with CDP Agentkit."""
     print("\n[yellow]Initializing CDP Agent...[/yellow]")
@@ -1068,7 +1060,6 @@ def choose_mode():
         print("1. chat    - Interactive chat mode")
         print("2. auto    - Autonomous action mode")
         print("3. audio   - Voice input mode")
-        print("4. test    - Test microphone")
 
         choice = input("\nChoose a mode (enter number or name): ").lower().strip()
         if choice in ["1", "chat"]:
@@ -1077,9 +1068,6 @@ def choose_mode():
             return "auto"
         elif choice in ["3", "audio"]:
             return "audio"
-        elif choice in ["4", "test"]:
-            test_microphone()
-            continue
         print("Invalid choice. Please try again.")
 
 
