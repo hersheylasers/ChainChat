@@ -187,7 +187,6 @@ class AudioChatApp(App):
         self.last_audio_item_id = None
         self.should_send_audio = asyncio.Event()
         self.connected = asyncio.Event()
-        self.cdp_processing = asyncio.Event()  # Flag to indicate CDP processing
         self.connection = None
         self.conversation_context = []  # Track conversation history
 
@@ -236,41 +235,34 @@ class AudioChatApp(App):
 
     async def handle_cdp_request(self, text: str) -> None:
         """Handle CDP agent requests independently of the realtime API connection."""
+
         cdp_log = self.query_one("#cdp-log", RichLog)
         audio_log = self.query_one("#audio-log", RichLog)
-
-        # Set CDP processing flag to pause audio operations
-        self.cdp_processing.set()
-
         # Notify audio section that CDP processing is starting
         audio_log.write(
             "\n[yellow]Processing blockchain request in CDP section...[/yellow]\n"
         )
-
         # Start CDP processing
         cdp_log.write("\n[yellow]===== CDP Agent Processing =====\n")
-        cdp_log.write("Request: " + text + "\n")
-        cdp_log.write("Initializing CDP agent...[/yellow]\n")
+
+        cdp_log.write("Request: " + text + ".\n")
+        # cdp_log.write("\n[yellow]Initializing CDP agent...\n")
 
         try:
             # Show agent initialization and debug info
             cdp_log.write("[green]CDP Agent initialized successfully[/green]\n")
             cdp_log.write("[yellow]Processing request through CDP agent...[/yellow]\n")
             cdp_log.write(f"[blue]Request text: {text}[/blue]\n")
-            cdp_log.write("[blue]Agent config: " + str(self.config) + "[/blue]\n")
+            # cdp_log.write("[blue]Agent config: " + str(self.config) + "[/blue]\n")
             cdp_log.refresh()
 
             cdp_response = ""
             chunk_count = 0
 
-            # Debug: Verify agent executor is callable
-            cdp_log.write("[blue]Calling CDP agent executor...[/blue]\n")
-            cdp_log.refresh()
-
             # Process agent response
             cdp_log.write("\n[yellow]Starting CDP Agent Stream[/yellow]\n")
             cdp_log.write(f"Input text: {text}\n")
-            cdp_log.write(f"Config: {self.config}\n")
+
             cdp_log.refresh()
 
             try:
@@ -281,21 +273,21 @@ class AudioChatApp(App):
                     "Show me the actual results of using the tools."
                 )
 
-                async for chunk in self.agent_executor.stream(
+                for chunk in self.agent_executor.stream(
                     {"messages": [HumanMessage(content=prompt)]},
                     self.config,
                 ):
                     chunk_count += 1
-                    cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
-                    cdp_log.write(f"Raw chunk: {chunk}\n")
-                    cdp_log.refresh()
+                    # cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
+                    # cdp_log.write(f"Raw chunk: {chunk}\n")
+                    # cdp_log.refresh()
 
                     if "agent" in chunk:
                         response_text = chunk["agent"]["messages"][0].content
                         cdp_response += response_text
                         cdp_log.write("[green]Agent Response:[/green]\n")
                         cdp_log.write(response_text + "\n")
-                        cdp_log.write(f"Full response so far: {cdp_response}\n")
+                        # cdp_log.write(f"Full response so far: {cdp_response}\n")
                         cdp_log.refresh()
                     elif "tools" in chunk:
                         tool_data = chunk["tools"]
@@ -303,10 +295,10 @@ class AudioChatApp(App):
                         tool_input = tool_data.get("tool_input", {})
                         tool_output = tool_data.get("output", "No output")
 
-                        cdp_log.write(f"\n[yellow]Using Tool: {tool_name}[/yellow]\n")
-                        cdp_log.write(f"Tool input: {tool_input}\n")
-                        cdp_log.write(f"Tool output: {tool_output}\n")
-                        cdp_log.refresh()
+                        # cdp_log.write(f"\n[yellow]Using Tool: {tool_name}[/yellow]\n")
+                        # cdp_log.write(f"Tool input: {tool_input}\n")
+                        # cdp_log.write(f"Tool output: {tool_output}\n")
+                        # cdp_log.refresh()
 
                         # Add tool result to response
                         tool_result = f"\nTool {tool_name} result: {tool_output}"
@@ -328,7 +320,7 @@ class AudioChatApp(App):
 
             # Show completion status
             cdp_log.write("\n[green]CDP processing completed[/green]\n")
-            cdp_log.write(f"Total chunks processed: {chunk_count}\n")
+            # cdp_log.write(f"Total chunks processed: {chunk_count}\n")
 
             # Store CDP response in context
             self.conversation_context.append(
@@ -347,8 +339,6 @@ class AudioChatApp(App):
 
             cdp_log.write("\n[yellow]===== End CDP Agent Processing =====\n")
 
-            # Clear CDP processing flag to allow audio operations to resume
-            self.cdp_processing.clear()
         except Exception as e:
             error_msg = f"\n[red]Error processing blockchain request:[/red]\n"
             cdp_log.write(error_msg)
@@ -361,9 +351,6 @@ class AudioChatApp(App):
                 "\n[red]Error in CDP processing. See CDP section for details.[/red]\n"
             )
 
-            # Clear CDP processing flag even if there was an error
-            self.cdp_processing.clear()
-
     async def handle_message(self, message: str) -> None:
         """Handle text messages from the input field."""
         if not message.strip():
@@ -374,7 +361,7 @@ class AudioChatApp(App):
         cdp_log = self.query_one("#cdp-log", RichLog)
 
         # Display user message in audio section
-        audio_log.write("\n[blue]User Text:[/blue]\n")
+        audio_log.write("\n[blue]User:[/blue]\n")
         audio_log.write(f"{message}\n")
 
         try:
@@ -387,49 +374,26 @@ class AudioChatApp(App):
             audio_log.refresh()
 
             if is_blockchain:
-                # Set CDP processing flag to pause audio operations
-                self.cdp_processing.set()
-
-                try:
-                    # Process CDP request in the CDP section
-                    await self.handle_cdp_request(message)
-
-                    # For blockchain requests, just process in CDP section without audio acknowledgment
-                    audio_log.write("\n[yellow]Processing in CDP section...[/yellow]\n")
-                    audio_log.refresh()
-                finally:
-                    # Always clear CDP processing flag
-                    self.cdp_processing.clear()
-
-                # Commented out audio response to avoid connection issues
-                # await connection.response.create(
-                #     response={
-                #         "conversation": "auto",
-                #         "modalities": ["text"],
-                #         "instructions": "I understand you have a blockchain request. I'll process that in the CDP section on the right. Please check there for the results of the blockchain operations.",
-                #     }
-                # )
-            else:
-                # For non-blockchain requests, let the audio agent handle it normally
-                audio_log.write("\n[yellow]Creating API Response[/yellow]\n")
-                audio_log.write("[blue]Sending request to realtime API...[/blue]\n")
+                # For blockchain requests, just process in CDP section
+                audio_log.write("\n[yellow]Processing in CDP section...[/yellow]\n")
                 audio_log.refresh()
 
-                # await connection.response.create(
-                #     response={
-                #         "conversation": "auto",
-                #         "modalities": ["text"],
-                #         "instructions": message,
-                #     }
-                # )
+                # Start CDP processing in background without affecting audio
+                asyncio.create_task(self.handle_cdp_request(message))
+            else:
+                # For non-blockchain requests, let the audio agent handle it normally
+                await connection.response.create(
+                    response={
+                        "conversation": "auto",
+                        "modalities": ["text", "audio"],
+                        "instructions": message,
+                    }
+                )
 
-            audio_log.write("[green]Response request sent successfully[/green]\n")
-            audio_log.write("Waiting for response events...\n")
-            audio_log.refresh()
         except Exception as e:
-            error_msg = f"\n[red]Error sending message: {str(e)}[/red]\n"
+            error_msg = f"\n[red]Error: {str(e)}[/red]\n"
             audio_log.write(error_msg)
-            cdp_log.write(error_msg)  # Show error in both sections
+            cdp_log.write(error_msg)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         """Handle button press events."""
@@ -488,7 +452,7 @@ class AudioChatApp(App):
 
     async def handle_realtime_connection(self) -> None:
         audio_log = self.query_one("#audio-log", RichLog)
-        max_retries = 10
+        max_retries = 99
         retry_count = 0
 
         while retry_count < max_retries:
@@ -517,7 +481,7 @@ class AudioChatApp(App):
                             "instructions": (
                                 "You are an AI assistant with blockchain capabilities through the CDP (Coinbase Developer Platform) AgentKit. "
                                 "When users ask about blockchain operations like checking balances, deploying contracts, or transferring tokens, "
-                                "acknowledge their request and let them know you'll process it using the CDP tools. "
+                                "acknowledge their request and let them know you'll process it using the CDP tools. Your response will be passed to the CDP Agent, so you must repeat my question back to me and include enough context for the agent to understand the task."
                                 "For non-blockchain requests, respond normally. Be concise and helpful. "
                                 "If you detect a blockchain request, let the user know you're passing it to the CDP agent for processing."
                             ),
@@ -530,28 +494,28 @@ class AudioChatApp(App):
 
                     async for event in conn:
                         # Debug: Log all event types and content
-                        audio_log.write(f"\n[yellow]===== Event =====\n")
-                        audio_log.write(f"Type: {event.type}\n")
+                        # audio_log.write(f"\n[yellow]===== Event =====\n")
+                        # audio_log.write(f"Type: {event.type}\n")
 
                         # Log event-specific attributes
-                        if event.type == "response.text.delta":
-                            audio_log.write(f"Delta: {event.delta}\n")
-                        elif event.type == "response.audio.delta":
-                            audio_log.write("Audio delta received\n")
-                        elif event.type == "response.audio_transcript.delta":
-                            audio_log.write(
-                                "\n[yellow]Audio Transcript Event[/yellow]\n"
-                            )
-                            audio_log.write(f"Delta: {event.delta}\n")
-                            audio_log.write(f"Item ID: {event.item_id}\n")
-                            audio_log.write("Accumulating transcript...\n")
-                            audio_log.refresh()
-                        elif event.type == "session.created":
-                            audio_log.write(f"Session: {event.session}\n")
-                        elif event.type == "session.updated":
-                            audio_log.write(f"Session: {event.session}\n")
-                        elif event.type == "response.text.done":
-                            audio_log.write(f"Item ID: {event.item_id}\n")
+                        # if event.type == "response.text.delta":
+                        #     audio_log.write(f"Delta: {event.delta}\n")
+                        # elif event.type == "response.audio.delta":
+                        #     audio_log.write("Audio delta received\n")
+                        # elif event.type == "response.audio_transcript.delta":
+                        #     audio_log.write(
+                        #         "\n[yellow]Audio Transcript Event[/yellow]\n"
+                        #     )
+                        #     audio_log.write(f"Delta: {event.delta}\n")
+                        #     audio_log.write(f"Item ID: {event.item_id}\n")
+                        #     audio_log.write("Accumulating transcript...\n")
+                        #     audio_log.refresh()
+                        # elif event.type == "session.created":
+                        #     audio_log.write(f"Session: {event.session}\n")
+                        # elif event.type == "session.updated":
+                        #     audio_log.write(f"Session: {event.session}\n")
+                        # elif event.type == "response.text.done":
+                        #     audio_log.write(f"Item ID: {event.item_id}\n")
                         # elif event.type == "input_audio_buffer.committed":
                         #     audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
                         #     audio_log.write("[green]Audio buffer committed[/green]\n")
@@ -570,43 +534,43 @@ class AudioChatApp(App):
                         #     )
                         #     audio_log.write("Waiting for transcription...\n")
                         #     audio_log.refresh()
-                        elif event.type == "response.created":
-                            audio_log.write("\n[yellow]Response Event[/yellow]\n")
-                            audio_log.write(
-                                "[green]Response created - starting processing[/green]\n"
-                            )
-                            audio_log.refresh()
-                        elif event.type == "response.done":
-                            audio_log.write("\n[yellow]Response Event[/yellow]\n")
-                            audio_log.write("[green]Response completed[/green]\n")
-                            audio_log.write("Checking accumulated items...\n")
-                            audio_log.write(f"Current items: {acc_items}\n")
-                            audio_log.refresh()
-                        elif event.type == "conversation.created":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write("[green]New conversation created[/green]\n")
-                            audio_log.refresh()
-                        elif event.type == "conversation_item.created":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write(
-                                "[green]New conversation item created[/green]\n"
-                            )
-                            audio_log.write(
-                                f"Item ID: {event.item_id if hasattr(event, 'item_id') else 'N/A'}\n"
-                            )
-                            audio_log.refresh()
-                        elif event.type == "conversation_item.truncated":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write(
-                                "[blue]Conversation item truncated[/blue]\n"
-                            )
-                            audio_log.refresh()
-                        elif event.type == "conversation_item.deleted":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write("[blue]Conversation item deleted[/blue]\n")
-                            audio_log.refresh()
+                        # elif event.type == "response.created":
+                        #     audio_log.write("\n[yellow]Response Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[green]Response created - starting processing[/green]\n"
+                        #     )
+                        #     audio_log.refresh()
+                        # elif event.type == "response.done":
+                        #     audio_log.write("\n[yellow]Response Event[/yellow]\n")
+                        #     audio_log.write("[green]Response completed[/green]\n")
+                        #     audio_log.write("Checking accumulated items...\n")
+                        #     audio_log.write(f"Current items: {acc_items}\n")
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation.created":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write("[green]New conversation created[/green]\n")
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation_item.created":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[green]New conversation item created[/green]\n"
+                        #     )
+                        #     audio_log.write(
+                        #         f"Item ID: {event.item_id if hasattr(event, 'item_id') else 'N/A'}\n"
+                        #     )
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation_item.truncated":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[blue]Conversation item truncated[/blue]\n"
+                        #     )
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation_item.deleted":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write("[blue]Conversation item deleted[/blue]\n")
+                        #     audio_log.refresh()
 
-                        audio_log.write("=================\n")
+                        # audio_log.write("=================\n")
                         audio_log.refresh()
 
                         if event.type == "session.created":
@@ -623,7 +587,7 @@ class AudioChatApp(App):
                         if event.type == "response.text.delta":
                             # Show assistant's response as it comes in
                             audio_log = self.query_one("#audio-log", RichLog)
-                            audio_log.write(event.delta)
+                            # audio_log.write(event.delta)
                             continue
 
                         if event.type == "response.audio.delta":
@@ -638,37 +602,37 @@ class AudioChatApp(App):
                         if event.type == "response.audio_transcript.delta":
                             # Debug: Show transcription event details
                             audio_log = self.query_one("#audio-log", RichLog)
-                            audio_log.write("\n[yellow]Transcription Event[/yellow]\n")
-                            audio_log.write(f"Item ID: {event.item_id}\n")
-                            audio_log.write(f"Delta: {event.delta}\n")
+                            # audio_log.write("\n[yellow]Transcription Event[/yellow]\n")
+                            # audio_log.write(f"Item ID: {event.item_id}\n")
+                            # audio_log.write(f"Delta: {event.delta}\n")
                             audio_log.refresh()
 
                             # Reset accumulated items if this is a new recording session
                             if event.item_id not in acc_items:
-                                audio_log.write(
-                                    "[blue]New recording session - clearing items[/blue]\n"
-                                )
+                                # audio_log.write(
+                                #     "[blue]New recording session - clearing items[/blue]\n"
+                                # )
                                 acc_items.clear()
                                 acc_items[event.item_id] = event.delta
                             else:
-                                audio_log.write(
-                                    "[blue]Appending to existing session[/blue]\n"
-                                )
+                                # audio_log.write(
+                                #     "[blue]Appending to existing session[/blue]\n"
+                                # )
                                 acc_items[event.item_id] = (
                                     acc_items[event.item_id] + event.delta
                                 )
 
                             # Show current state
-                            audio_log.write("\n[green]Current State:[/green]\n")
-                            audio_log.write(f"Accumulated items: {acc_items}\n")
-                            audio_log.write(
-                                f"Current transcript: {acc_items[event.item_id]}\n"
-                            )
-                            audio_log.refresh()
+                            # audio_log.write("\n[green]Current State:[/green]\n")
+                            # audio_log.write(f"Accumulated items: {acc_items}\n")
+                            # audio_log.write(
+                            #     f"Current transcript: {acc_items[event.item_id]}\n"
+                            # )
+                            # audio_log.refresh()
 
-                            # Update display
-                            audio_log.write("\n[blue]Transcript so far:[/blue]\n")
-                            audio_log.write(acc_items[event.item_id])
+                            # # Update display
+                            # audio_log.write("\n[blue]Transcript so far:[/blue]\n")
+                            # audio_log.write(acc_items[event.item_id])
                             continue
 
                         if event.type == "response.audio_transcript.done":
@@ -698,35 +662,21 @@ class AudioChatApp(App):
 
                                 # Now clear and show the conversation fresh
                                 audio_log.clear()
-                                audio_log.write("\n[blue]User:[/blue]\n")
+                                audio_log.write("\n[blue]Agent:[/blue]\n")
                                 audio_log.write(f"{transcribed_text}\n")
 
                                 if is_blockchain:
-                                    # For blockchain requests, just process in CDP section without audio acknowledgment
+                                    # For blockchain requests, just process in CDP section
                                     audio_log.write(
                                         "\n[yellow]Processing in CDP section...[/yellow]\n"
                                     )
                                     audio_log.refresh()
 
-                                    # Commented out audio response to avoid connection issues
-                                    # conn = await self._get_connection()
-                                    # await conn.response.create(
-                                    #     response={
-                                    #         "conversation": "auto",
-                                    #         "modalities": ["text"],
-                                    #         "instructions": "I understand you have a blockchain request. I'll process that in the CDP section on the right. Please check there for the results of the blockchain operations.",
-                                    #     }
-                                    # )
-
-                                    # Set CDP processing flag to pause audio operations
-                                    self.cdp_processing.set()
-
-                                    try:
-                                        # Process CDP request separately
-                                        await self.handle_cdp_request(transcribed_text)
-                                    finally:
-                                        # Always clear CDP processing flag
-                                        self.cdp_processing.clear()
+                                    # Start CDP processing in background without affecting audio
+                                    asyncio.create_task(
+                                        self.handle_cdp_request(transcribed_text)
+                                    )
+                                    continue
                                 else:
                                     # Let the voice agent handle non-blockchain requests
                                     audio_log.write(
@@ -792,19 +742,13 @@ class AudioChatApp(App):
 
         try:
             while True:
-                if not self.should_send_audio.is_set() or self.cdp_processing.is_set():
-                    sent_audio = (
-                        False  # Reset flag when not recording or during CDP processing
-                    )
+                if not self.should_send_audio.is_set():
+                    sent_audio = False  # Reset flag when not recording
                     await asyncio.sleep(0)
                     continue
 
                 if stream.read_available < read_size:
                     await asyncio.sleep(0)
-                    continue
-
-                # Skip audio processing if CDP is active
-                if self.cdp_processing.is_set():
                     continue
 
                 status_indicator.is_recording = True
@@ -816,24 +760,10 @@ class AudioChatApp(App):
                     audio_log = self.query_one("#audio-log", RichLog)
                     audio_log.write("\n[blue]Starting new recording...[/blue]\n")
 
-                    # Cancel any previous response and start fresh
+                    # Start new recording
                     audio_log.write(
                         "\n[yellow]Starting New Recording Session[/yellow]\n"
                     )
-                    audio_log.write("[blue]Cancelling previous response...[/blue]\n")
-                    audio_log.refresh()
-
-                    # Commented out response cancel to avoid connection issues
-                    # try:
-                    #     await connection.response.cancel()
-                    #     audio_log.write(
-                    #         "[green]Previous response cancelled successfully[/green]\n"
-                    #     )
-                    # except Exception as e:
-                    #     audio_log.write(
-                    #         f"[red]Error cancelling previous response: {str(e)}[/red]\n"
-                    #     )
-
                     audio_log.write("Ready for new audio input\n")
                     audio_log.refresh()
                     sent_audio = True
@@ -884,32 +814,10 @@ class AudioChatApp(App):
                 self.should_send_audio.clear()
                 status_indicator.is_recording = False
 
-                # When stopping recording, ensure the audio buffer is committed and response is created
-                conn = await self._get_connection()
-
-                # Debug: Log the response creation process
+                # When stopping recording, check if we're in the middle of CDP processing
                 audio_log = self.query_one("#audio-log", RichLog)
-                audio_log.write("\n[yellow]Creating Response[/yellow]\n")
-                audio_log.write("[blue]1. Committing audio buffer...[/blue]\n")
+                audio_log.write("\n[yellow]Stopping recording...[/yellow]\n")
                 audio_log.refresh()
-
-                # await conn.input_audio_buffer.commit()
-
-                # Commented out response creation to avoid connection issues
-                # audio_log.write(
-                #     "[blue]2. Creating response with text and audio modalities...[/blue]\n"
-                # )
-                # audio_log.refresh()
-
-                # await conn.response.create(
-                #     response={
-                #         "conversation": "auto",
-                #         "modalities": ["text", "audio"],
-                #     }
-                # )
-
-                # audio_log.write("[green]Response creation initiated[/green]\n")
-                # audio_log.refresh()
             else:
                 self.should_send_audio.set()
                 status_indicator.is_recording = True
@@ -967,6 +875,7 @@ def initialize_agent():
 
     state_modifier = (
         "You are a blockchain agent with access to CDP (Coinbase Developer Platform) tools. "
+        "You are an assistant to another agent, and you will be able to see the response from the other agent to the User, but not the User prompt directly. Based on the Agent response, guess what the User requested, and use a tool to give an answer."
         "IMPORTANT: You must ALWAYS use your tools when handling blockchain requests. "
         "Here's how to handle requests:\n"
         "1. For ANY blockchain-related request, FIRST use get_wallet_details to check the network.\n"
