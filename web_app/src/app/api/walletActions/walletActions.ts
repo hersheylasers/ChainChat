@@ -14,9 +14,9 @@ const privyClient = new PrivyClient(
     }
 );
 
-console.log(process.env.PRIVY_APP_ID);
-console.log(process.env.PRIVY_APP_SECRET);
-console.log(process.env.PRIVY_AUTHORIZATION_KEY);
+// console.log(process.env.PRIVY_APP_ID);
+// console.log(process.env.PRIVY_APP_SECRET);
+// console.log(process.env.PRIVY_AUTHORIZATION_KEY);
 
 interface WalletActionRequest {
   action: 'transfer' | 'approve' | 'swap';
@@ -65,12 +65,13 @@ export default async function handler(
     const response = await privyClient.walletApi.rpc({
         walletId: userId,
         method: 'eth_sendTransaction',
-        caip: 'eip155:11155111',
+        caip2: 'eip155:11155111',
         params: {
+
             transaction: {
-                to: recipient,
-                value: amount,
-                gas: '0x5208',
+                to: recipient as `0x${string}`,
+                value: amount as `0x${string}`,
+
             }
         }
     });

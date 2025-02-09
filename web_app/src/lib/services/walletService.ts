@@ -61,10 +61,11 @@ export class WalletService {
     const privyClient = await getPrivyClient();
     const {hash} = await privyClient.walletApi.ethereum.sendTransaction({
       walletId: walletAddress,
-      caip2: 'eip155:84532',
+      caip2: 'eip155:11155111',
       transaction: {
-        method: 'eth_getBalance',
-        params: [walletAddress, 'latest']
+        to: walletAddress as `0x${string}`,
+        data: `0x70a08231000000000000000000000000${walletAddress.slice(2)}` as `0x${string}`,
+        value: '0x0' as `0x${string}`
       }
     });
 
@@ -75,8 +76,12 @@ export class WalletService {
     const privyClient = await getPrivyClient();
     return privyClient.walletApi.ethereum.sendTransaction({
       walletId: walletAddress,
-      caip2: 'eip155:84532',
-      transaction: tx
+      caip2: 'eip155:11155111',
+      transaction: {
+        to: tx.to as `0x${string}`,
+        value: tx.value as `0x${string}`
+      }
+
     });
   }
 }
