@@ -239,6 +239,13 @@ class AudioChatApp(App):
         cdp_log = self.query_one("#cdp-log", RichLog)
         audio_log = self.query_one("#audio-log", RichLog)
 
+        # First stop any active recording
+        was_recording = self.should_send_audio.is_set()
+        if was_recording:
+            self.should_send_audio.clear()
+            # Give time for any in-flight audio operations to complete
+            await asyncio.sleep(5)
+
         # Set CDP processing flag to pause audio operations
         self.cdp_processing.set()
 
@@ -248,7 +255,9 @@ class AudioChatApp(App):
         )
 
         # Start CDP processing
-        cdp_log.write("\n[yellow]===== CDP Agent Processing =====\n")
+        cdp_log.write(
+            "\n[yellow]===== CDP Agent Processing =====\n"
+        )  # This is the last thing the cdp agent posts. After this, the audio agent loses connection. Why?
         cdp_log.write("Request: " + text + "\n")
         cdp_log.write("Initializing CDP agent...[/yellow]\n")
 
@@ -349,6 +358,10 @@ class AudioChatApp(App):
 
             # Clear CDP processing flag to allow audio operations to resume
             self.cdp_processing.clear()
+
+            # Restore recording state if it was active before
+            if was_recording:
+                self.should_send_audio.set()
         except Exception as e:
             error_msg = f"\n[red]Error processing blockchain request:[/red]\n"
             cdp_log.write(error_msg)
@@ -364,6 +377,10 @@ class AudioChatApp(App):
             # Clear CDP processing flag even if there was an error
             self.cdp_processing.clear()
 
+            # Restore recording state if it was active before
+            if was_recording:
+                self.should_send_audio.set()
+
     async def handle_message(self, message: str) -> None:
         """Handle text messages from the input field."""
         if not message.strip():
@@ -374,7 +391,7 @@ class AudioChatApp(App):
         cdp_log = self.query_one("#cdp-log", RichLog)
 
         # Display user message in audio section
-        audio_log.write("\n[blue]User Text:[/blue]\n")
+        audio_log.write("\n[blue]Agent Text:[/blue]\n")
         audio_log.write(f"{message}\n")
 
         try:
@@ -488,7 +505,7 @@ class AudioChatApp(App):
 
     async def handle_realtime_connection(self) -> None:
         audio_log = self.query_one("#audio-log", RichLog)
-        max_retries = 10
+        max_retries = 99
         retry_count = 0
 
         while retry_count < max_retries:
@@ -530,28 +547,28 @@ class AudioChatApp(App):
 
                     async for event in conn:
                         # Debug: Log all event types and content
-                        audio_log.write(f"\n[yellow]===== Event =====\n")
-                        audio_log.write(f"Type: {event.type}\n")
+                        # audio_log.write(f"\n[yellow]===== Event =====\n")
+                        # audio_log.write(f"Type: {event.type}\n")
 
                         # Log event-specific attributes
-                        if event.type == "response.text.delta":
-                            audio_log.write(f"Delta: {event.delta}\n")
-                        elif event.type == "response.audio.delta":
-                            audio_log.write("Audio delta received\n")
-                        elif event.type == "response.audio_transcript.delta":
-                            audio_log.write(
-                                "\n[yellow]Audio Transcript Event[/yellow]\n"
-                            )
-                            audio_log.write(f"Delta: {event.delta}\n")
-                            audio_log.write(f"Item ID: {event.item_id}\n")
-                            audio_log.write("Accumulating transcript...\n")
-                            audio_log.refresh()
-                        elif event.type == "session.created":
-                            audio_log.write(f"Session: {event.session}\n")
-                        elif event.type == "session.updated":
-                            audio_log.write(f"Session: {event.session}\n")
-                        elif event.type == "response.text.done":
-                            audio_log.write(f"Item ID: {event.item_id}\n")
+                        # if event.type == "response.text.delta":
+                        #     audio_log.write(f"Delta: {event.delta}\n")
+                        # elif event.type == "response.audio.delta":
+                        #     audio_log.write("Audio delta received\n")
+                        # elif event.type == "response.audio_transcript.delta":
+                        #     audio_log.write(
+                        #         "\n[yellow]Audio Transcript Event[/yellow]\n"
+                        #     )
+                        #     audio_log.write(f"Delta: {event.delta}\n")
+                        #     audio_log.write(f"Item ID: {event.item_id}\n")
+                        #     audio_log.write("Accumulating transcript...\n")
+                        #     audio_log.refresh()
+                        # elif event.type == "session.created":
+                        #     audio_log.write(f"Session: {event.session}\n")
+                        # elif event.type == "session.updated":
+                        #     audio_log.write(f"Session: {event.session}\n")
+                        # elif event.type == "response.text.done":
+                        #     audio_log.write(f"Item ID: {event.item_id}\n")
                         # elif event.type == "input_audio_buffer.committed":
                         #     audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
                         #     audio_log.write("[green]Audio buffer committed[/green]\n")
@@ -570,43 +587,43 @@ class AudioChatApp(App):
                         #     )
                         #     audio_log.write("Waiting for transcription...\n")
                         #     audio_log.refresh()
-                        elif event.type == "response.created":
-                            audio_log.write("\n[yellow]Response Event[/yellow]\n")
-                            audio_log.write(
-                                "[green]Response created - starting processing[/green]\n"
-                            )
-                            audio_log.refresh()
-                        elif event.type == "response.done":
-                            audio_log.write("\n[yellow]Response Event[/yellow]\n")
-                            audio_log.write("[green]Response completed[/green]\n")
-                            audio_log.write("Checking accumulated items...\n")
-                            audio_log.write(f"Current items: {acc_items}\n")
-                            audio_log.refresh()
-                        elif event.type == "conversation.created":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write("[green]New conversation created[/green]\n")
-                            audio_log.refresh()
-                        elif event.type == "conversation_item.created":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write(
-                                "[green]New conversation item created[/green]\n"
-                            )
-                            audio_log.write(
-                                f"Item ID: {event.item_id if hasattr(event, 'item_id') else 'N/A'}\n"
-                            )
-                            audio_log.refresh()
-                        elif event.type == "conversation_item.truncated":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write(
-                                "[blue]Conversation item truncated[/blue]\n"
-                            )
-                            audio_log.refresh()
-                        elif event.type == "conversation_item.deleted":
-                            audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
-                            audio_log.write("[blue]Conversation item deleted[/blue]\n")
-                            audio_log.refresh()
+                        # elif event.type == "response.created":
+                        #     audio_log.write("\n[yellow]Response Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[green]Response created - starting processing[/green]\n"
+                        #     )
+                        #     audio_log.refresh()
+                        # elif event.type == "response.done":
+                        #     audio_log.write("\n[yellow]Response Event[/yellow]\n")
+                        #     audio_log.write("[green]Response completed[/green]\n")
+                        #     audio_log.write("Checking accumulated items...\n")
+                        #     audio_log.write(f"Current items: {acc_items}\n")
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation.created":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write("[green]New conversation created[/green]\n")
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation_item.created":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[green]New conversation item created[/green]\n"
+                        #     )
+                        #     audio_log.write(
+                        #         f"Item ID: {event.item_id if hasattr(event, 'item_id') else 'N/A'}\n"
+                        #     )
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation_item.truncated":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[blue]Conversation item truncated[/blue]\n"
+                        #     )
+                        #     audio_log.refresh()
+                        # elif event.type == "conversation_item.deleted":
+                        #     audio_log.write("\n[yellow]Conversation Event[/yellow]\n")
+                        #     audio_log.write("[blue]Conversation item deleted[/blue]\n")
+                        #     audio_log.refresh()
 
-                        audio_log.write("=================\n")
+                        # audio_log.write("=================\n")
                         audio_log.refresh()
 
                         if event.type == "session.created":
@@ -623,7 +640,7 @@ class AudioChatApp(App):
                         if event.type == "response.text.delta":
                             # Show assistant's response as it comes in
                             audio_log = self.query_one("#audio-log", RichLog)
-                            audio_log.write(event.delta)
+                            # audio_log.write(event.delta)
                             continue
 
                         if event.type == "response.audio.delta":
@@ -638,37 +655,37 @@ class AudioChatApp(App):
                         if event.type == "response.audio_transcript.delta":
                             # Debug: Show transcription event details
                             audio_log = self.query_one("#audio-log", RichLog)
-                            audio_log.write("\n[yellow]Transcription Event[/yellow]\n")
-                            audio_log.write(f"Item ID: {event.item_id}\n")
-                            audio_log.write(f"Delta: {event.delta}\n")
+                            # audio_log.write("\n[yellow]Transcription Event[/yellow]\n")
+                            # audio_log.write(f"Item ID: {event.item_id}\n")
+                            # audio_log.write(f"Delta: {event.delta}\n")
                             audio_log.refresh()
 
                             # Reset accumulated items if this is a new recording session
                             if event.item_id not in acc_items:
-                                audio_log.write(
-                                    "[blue]New recording session - clearing items[/blue]\n"
-                                )
+                                # audio_log.write(
+                                #     "[blue]New recording session - clearing items[/blue]\n"
+                                # )
                                 acc_items.clear()
                                 acc_items[event.item_id] = event.delta
                             else:
-                                audio_log.write(
-                                    "[blue]Appending to existing session[/blue]\n"
-                                )
+                                # audio_log.write(
+                                #     "[blue]Appending to existing session[/blue]\n"
+                                # )
                                 acc_items[event.item_id] = (
                                     acc_items[event.item_id] + event.delta
                                 )
 
                             # Show current state
-                            audio_log.write("\n[green]Current State:[/green]\n")
-                            audio_log.write(f"Accumulated items: {acc_items}\n")
-                            audio_log.write(
-                                f"Current transcript: {acc_items[event.item_id]}\n"
-                            )
-                            audio_log.refresh()
+                            # audio_log.write("\n[green]Current State:[/green]\n")
+                            # audio_log.write(f"Accumulated items: {acc_items}\n")
+                            # audio_log.write(
+                            #     f"Current transcript: {acc_items[event.item_id]}\n"
+                            # )
+                            # audio_log.refresh()
 
-                            # Update display
-                            audio_log.write("\n[blue]Transcript so far:[/blue]\n")
-                            audio_log.write(acc_items[event.item_id])
+                            # # Update display
+                            # audio_log.write("\n[blue]Transcript so far:[/blue]\n")
+                            # audio_log.write(acc_items[event.item_id])
                             continue
 
                         if event.type == "response.audio_transcript.done":
@@ -698,7 +715,7 @@ class AudioChatApp(App):
 
                                 # Now clear and show the conversation fresh
                                 audio_log.clear()
-                                audio_log.write("\n[blue]User:[/blue]\n")
+                                audio_log.write("\n[blue]Agent:[/blue]\n")
                                 audio_log.write(f"{transcribed_text}\n")
 
                                 if is_blockchain:
@@ -792,19 +809,13 @@ class AudioChatApp(App):
 
         try:
             while True:
-                if not self.should_send_audio.is_set() or self.cdp_processing.is_set():
-                    sent_audio = (
-                        False  # Reset flag when not recording or during CDP processing
-                    )
+                if not self.should_send_audio.is_set():
+                    sent_audio = False  # Reset flag when not recording
                     await asyncio.sleep(0)
                     continue
 
                 if stream.read_available < read_size:
                     await asyncio.sleep(0)
-                    continue
-
-                # Skip audio processing if CDP is active
-                if self.cdp_processing.is_set():
                     continue
 
                 status_indicator.is_recording = True
