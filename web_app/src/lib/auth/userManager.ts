@@ -1,15 +1,12 @@
-
 import { supabase } from '../db/supabase';
 import type { DbUser } from '../db/types';
-import { usePrivy } from '@privy-io/react-auth';
 import { getPrivyClient } from '../privy';
 
 export type UserProfile = Omit<DbUser, 'updated_at'>;
 
 export class UserManager {
-  static async createUser(email: string): Promise<UserProfile> {
-    const { user } = usePrivy();
-    const embeddedWalletAddress = user?.linkedAccounts[0]?.address;
+  
+  static async createUser(email: string, embeddedWalletAddress: string): Promise<UserProfile> {
     if (!embeddedWalletAddress) throw new Error('No wallet connected');
 
     // Create server wallet
@@ -37,26 +34,27 @@ export class UserManager {
 
   static async getUserByEmail(email: string): Promise<UserProfile | null> {
     const { data: user } = await supabase
-        .from('users')
-        .select()
-        .eq('email', email)
-        .single();
+      .from('users')
+      .select('*')
+      .eq('email', email)
+      .single();
 
     return user;
   }
 
   static async getUserByEmbeddedWallet(address: string): Promise<UserProfile | null> {
     const { data: user } = await supabase
-        .from('users')
-        .select()
-        .eq('embedded_wallet_address', address)
-        .single();
+      .from('users')
+      .select('*')
+      .eq('embedded_wallet_address', address)
+      .single();
 
     return user;
   }
-
   static async verifyUserAuthentication(address: string): Promise<boolean> {
     const user = await this.getUserByEmbeddedWallet(address);
     return !!user;
   }
+
+
 }
