@@ -14,6 +14,16 @@ export function useWalletSetup() {
   const [error, setError] = useState<WalletError | null>(null);
   const [balance, setBalance] = useState<string | null>(null);
 
+  const refreshBalance = useCallback(async () => {
+    if (!serverWalletAddress) return;
+    try {
+      const balance = await WalletService.getWalletBalance(serverWalletAddress);
+      setBalance(balance);
+    } catch (err) {
+      console.error('Error fetching balance:', err);
+    }
+  }, [serverWalletAddress]);
+
   const setupWallets = useCallback(async () => {
     const walletAccount = user?.linkedAccounts.find(
       account => account.type === 'wallet'
@@ -45,17 +55,7 @@ export function useWalletSetup() {
     } finally {
       setLoading(false);
     }
-  }, [user?.linkedAccounts]);
-
-  const refreshBalance = useCallback(async () => {
-    if (!serverWalletAddress) return;
-    try {
-      const balance = await WalletService.getWalletBalance(serverWalletAddress);
-      setBalance(balance);
-    } catch (err) {
-      console.error('Error fetching balance:', err);
-    }
-  }, [serverWalletAddress]);
+  }, [user, refreshBalance]);
 
   const sendTransaction = useCallback(async (to: string, amount: string) => {
     if (!serverWalletAddress) {
