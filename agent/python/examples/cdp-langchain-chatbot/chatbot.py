@@ -187,6 +187,7 @@ class AudioChatApp(App):
         self.last_audio_item_id = None
         self.should_send_audio = asyncio.Event()
         self.connected = asyncio.Event()
+        self.cdp_processing = asyncio.Event()  # Flag to indicate CDP processing
         self.connection = None
         self.conversation_context = []  # Track conversation history
 
@@ -238,6 +239,9 @@ class AudioChatApp(App):
         cdp_log = self.query_one("#cdp-log", RichLog)
         audio_log = self.query_one("#audio-log", RichLog)
 
+        # Set CDP processing flag to pause audio operations
+        self.cdp_processing.set()
+
         # Notify audio section that CDP processing is starting
         audio_log.write(
             "\n[yellow]Processing blockchain request in CDP section...[/yellow]\n"
@@ -264,27 +268,63 @@ class AudioChatApp(App):
             cdp_log.refresh()
 
             # Process agent response
-            async for chunk in self.agent_executor.astream(
-                {"messages": [HumanMessage(content=text)]},
-                self.config,
-            ):
-                chunk_count += 1
-                cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
-                cdp_log.refresh()
+            cdp_log.write("\n[yellow]Starting CDP Agent Stream[/yellow]\n")
+            cdp_log.write(f"Input text: {text}\n")
+            cdp_log.write(f"Config: {self.config}\n")
+            cdp_log.refresh()
 
-                if "agent" in chunk:
-                    response_text = chunk["agent"]["messages"][0].content
-                    cdp_response += response_text
-                    cdp_log.write("[green]Agent Response:[/green]\n")
-                    cdp_log.write(response_text + "\n")
+            try:
+                # Create a message that forces tool usage
+                prompt = (
+                    f"Use your CDP tools to handle this blockchain request: {text}\n"
+                    "Remember to ALWAYS start with get_wallet_details before any other operation.\n"
+                    "Show me the actual results of using the tools."
+                )
+
+                async for chunk in self.agent_executor.stream(
+                    {"messages": [HumanMessage(content=prompt)]},
+                    self.config,
+                ):
+                    chunk_count += 1
+                    cdp_log.write(f"\n[blue]Processing chunk {chunk_count}:[/blue]\n")
+                    cdp_log.write(f"Raw chunk: {chunk}\n")
                     cdp_log.refresh()
-                elif "tools" in chunk:
-                    tool_text = chunk["tools"]["messages"][0].content
-                    cdp_log.write(f"[yellow]Using Tool:[/yellow] {tool_text}\n")
+
+                    if "agent" in chunk:
+                        response_text = chunk["agent"]["messages"][0].content
+                        cdp_response += response_text
+                        cdp_log.write("[green]Agent Response:[/green]\n")
+                        cdp_log.write(response_text + "\n")
+                        cdp_log.write(f"Full response so far: {cdp_response}\n")
+                        cdp_log.refresh()
+                    elif "tools" in chunk:
+                        tool_data = chunk["tools"]
+                        tool_name = tool_data.get("tool", "unknown")
+                        tool_input = tool_data.get("tool_input", {})
+                        tool_output = tool_data.get("output", "No output")
+
+                        cdp_log.write(f"\n[yellow]Using Tool: {tool_name}[/yellow]\n")
+                        cdp_log.write(f"Tool input: {tool_input}\n")
+                        cdp_log.write(f"Tool output: {tool_output}\n")
+                        cdp_log.refresh()
+
+                        # Add tool result to response
+                        tool_result = f"\nTool {tool_name} result: {tool_output}"
+                        cdp_response += tool_result
+                    else:
+                        cdp_log.write(f"[blue]Other chunk type:[/blue] {chunk}\n")
+                        cdp_log.refresh()
+
+                if chunk_count == 0:
+                    cdp_log.write("[red]Warning: No chunks received from agent[/red]\n")
                     cdp_log.refresh()
-                else:
-                    cdp_log.write(f"[blue]Other chunk type:[/blue] {chunk}\n")
-                    cdp_log.refresh()
+            except Exception as e:
+                cdp_log.write(
+                    f"[red]Error in agent stream: {type(e)} - {str(e)}[/red]\n"
+                )
+                cdp_log.write(f"Traceback: {e.__traceback__}\n")
+                cdp_log.refresh()
+                raise  # Re-raise to be caught by outer try/except
 
             # Show completion status
             cdp_log.write("\n[green]CDP processing completed[/green]\n")
@@ -306,6 +346,9 @@ class AudioChatApp(App):
             )
 
             cdp_log.write("\n[yellow]===== End CDP Agent Processing =====\n")
+
+            # Clear CDP processing flag to allow audio operations to resume
+            self.cdp_processing.clear()
         except Exception as e:
             error_msg = f"\n[red]Error processing blockchain request:[/red]\n"
             cdp_log.write(error_msg)
@@ -317,6 +360,9 @@ class AudioChatApp(App):
             audio_log.write(
                 "\n[red]Error in CDP processing. See CDP section for details.[/red]\n"
             )
+
+            # Clear CDP processing flag even if there was an error
+            self.cdp_processing.clear()
 
     async def handle_message(self, message: str) -> None:
         """Handle text messages from the input field."""
@@ -341,17 +387,45 @@ class AudioChatApp(App):
             audio_log.refresh()
 
             if is_blockchain:
-                # Process CDP request first
-                await self.handle_cdp_request(message)
+                # Set CDP processing flag to pause audio operations
+                self.cdp_processing.set()
 
-            # Then let the realtime API handle the conversation flow
-            await connection.response.create(
-                response={
-                    "conversation": "auto",
-                    "modalities": ["text"],
-                    "instructions": message,
-                }
-            )
+                try:
+                    # Process CDP request in the CDP section
+                    await self.handle_cdp_request(message)
+
+                    # For blockchain requests, just process in CDP section without audio acknowledgment
+                    audio_log.write("\n[yellow]Processing in CDP section...[/yellow]\n")
+                    audio_log.refresh()
+                finally:
+                    # Always clear CDP processing flag
+                    self.cdp_processing.clear()
+
+                # Commented out audio response to avoid connection issues
+                # await connection.response.create(
+                #     response={
+                #         "conversation": "auto",
+                #         "modalities": ["text"],
+                #         "instructions": "I understand you have a blockchain request. I'll process that in the CDP section on the right. Please check there for the results of the blockchain operations.",
+                #     }
+                # )
+            else:
+                # For non-blockchain requests, let the audio agent handle it normally
+                audio_log.write("\n[yellow]Creating API Response[/yellow]\n")
+                audio_log.write("[blue]Sending request to realtime API...[/blue]\n")
+                audio_log.refresh()
+
+                # await connection.response.create(
+                #     response={
+                #         "conversation": "auto",
+                #         "modalities": ["text"],
+                #         "instructions": message,
+                #     }
+                # )
+
+            audio_log.write("[green]Response request sent successfully[/green]\n")
+            audio_log.write("Waiting for response events...\n")
+            audio_log.refresh()
         except Exception as e:
             error_msg = f"\n[red]Error sending message: {str(e)}[/red]\n"
             audio_log.write(error_msg)
@@ -465,31 +539,37 @@ class AudioChatApp(App):
                         elif event.type == "response.audio.delta":
                             audio_log.write("Audio delta received\n")
                         elif event.type == "response.audio_transcript.delta":
-                            audio_log.write(f"Transcript delta: {event.delta}\n")
+                            audio_log.write(
+                                "\n[yellow]Audio Transcript Event[/yellow]\n"
+                            )
+                            audio_log.write(f"Delta: {event.delta}\n")
+                            audio_log.write(f"Item ID: {event.item_id}\n")
+                            audio_log.write("Accumulating transcript...\n")
+                            audio_log.refresh()
                         elif event.type == "session.created":
                             audio_log.write(f"Session: {event.session}\n")
                         elif event.type == "session.updated":
                             audio_log.write(f"Session: {event.session}\n")
                         elif event.type == "response.text.done":
                             audio_log.write(f"Item ID: {event.item_id}\n")
-                        elif event.type == "input_audio_buffer.committed":
-                            audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
-                            audio_log.write("[green]Audio buffer committed[/green]\n")
-                            audio_log.write("Creating response...\n")
-                            audio_log.refresh()
-                        elif event.type == "input_audio_buffer.speech_started":
-                            audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
-                            audio_log.write(
-                                "[green]Speech started - recording...[/green]\n"
-                            )
-                            audio_log.refresh()
-                        elif event.type == "input_audio_buffer.speech_stopped":
-                            audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
-                            audio_log.write(
-                                "[green]Speech stopped - processing...[/green]\n"
-                            )
-                            audio_log.write("Waiting for transcription...\n")
-                            audio_log.refresh()
+                        # elif event.type == "input_audio_buffer.committed":
+                        #     audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
+                        #     audio_log.write("[green]Audio buffer committed[/green]\n")
+                        #     audio_log.write("Creating response...\n")
+                        #     audio_log.refresh()
+                        # elif event.type == "input_audio_buffer.speech_started":
+                        #     audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[green]Speech started - recording...[/green]\n"
+                        #     )
+                        #     audio_log.refresh()
+                        # elif event.type == "input_audio_buffer.speech_stopped":
+                        #     audio_log.write("\n[yellow]Audio Buffer Event[/yellow]\n")
+                        #     audio_log.write(
+                        #         "[green]Speech stopped - processing...[/green]\n"
+                        #     )
+                        #     audio_log.write("Waiting for transcription...\n")
+                        #     audio_log.refresh()
                         elif event.type == "response.created":
                             audio_log.write("\n[yellow]Response Event[/yellow]\n")
                             audio_log.write(
@@ -597,7 +677,7 @@ class AudioChatApp(App):
                                 transcribed_text = acc_items[event.item_id]
 
                                 # First show the transcribed text
-                                audio_log.write("\n[blue]User:[/blue]\n")
+                                audio_log.write("\n[blue]Agent:[/blue]\n")
                                 audio_log.write(f"{transcribed_text}\n")
                                 audio_log.refresh()
 
@@ -622,8 +702,31 @@ class AudioChatApp(App):
                                 audio_log.write(f"{transcribed_text}\n")
 
                                 if is_blockchain:
-                                    # Process CDP request
-                                    await self.handle_cdp_request(transcribed_text)
+                                    # For blockchain requests, just process in CDP section without audio acknowledgment
+                                    audio_log.write(
+                                        "\n[yellow]Processing in CDP section...[/yellow]\n"
+                                    )
+                                    audio_log.refresh()
+
+                                    # Commented out audio response to avoid connection issues
+                                    # conn = await self._get_connection()
+                                    # await conn.response.create(
+                                    #     response={
+                                    #         "conversation": "auto",
+                                    #         "modalities": ["text"],
+                                    #         "instructions": "I understand you have a blockchain request. I'll process that in the CDP section on the right. Please check there for the results of the blockchain operations.",
+                                    #     }
+                                    # )
+
+                                    # Set CDP processing flag to pause audio operations
+                                    self.cdp_processing.set()
+
+                                    try:
+                                        # Process CDP request separately
+                                        await self.handle_cdp_request(transcribed_text)
+                                    finally:
+                                        # Always clear CDP processing flag
+                                        self.cdp_processing.clear()
                                 else:
                                     # Let the voice agent handle non-blockchain requests
                                     audio_log.write(
@@ -689,13 +792,19 @@ class AudioChatApp(App):
 
         try:
             while True:
-                if not self.should_send_audio.is_set():
-                    sent_audio = False  # Reset flag when not recording
+                if not self.should_send_audio.is_set() or self.cdp_processing.is_set():
+                    sent_audio = (
+                        False  # Reset flag when not recording or during CDP processing
+                    )
                     await asyncio.sleep(0)
                     continue
 
                 if stream.read_available < read_size:
                     await asyncio.sleep(0)
+                    continue
+
+                # Skip audio processing if CDP is active
+                if self.cdp_processing.is_set():
                     continue
 
                 status_indicator.is_recording = True
@@ -708,13 +817,49 @@ class AudioChatApp(App):
                     audio_log.write("\n[blue]Starting new recording...[/blue]\n")
 
                     # Cancel any previous response and start fresh
-                    await connection.response.cancel()
+                    audio_log.write(
+                        "\n[yellow]Starting New Recording Session[/yellow]\n"
+                    )
+                    audio_log.write("[blue]Cancelling previous response...[/blue]\n")
+                    audio_log.refresh()
+
+                    # Commented out response cancel to avoid connection issues
+                    # try:
+                    #     await connection.response.cancel()
+                    #     audio_log.write(
+                    #         "[green]Previous response cancelled successfully[/green]\n"
+                    #     )
+                    # except Exception as e:
+                    #     audio_log.write(
+                    #         f"[red]Error cancelling previous response: {str(e)}[/red]\n"
+                    #     )
+
+                    audio_log.write("Ready for new audio input\n")
+                    audio_log.refresh()
                     sent_audio = True
 
-                # Use proper audio buffer append method
-                await connection.input_audio_buffer.append(
-                    audio=base64.b64encode(cast(Any, data)).decode("utf-8")
-                )
+                try:
+                    # Debug: Log audio buffer operation
+                    # audio_log = self.query_one("#audio-log", RichLog)
+                    # audio_log.write("\n[yellow]Audio Buffer Operation[/yellow]\n")
+                    # audio_log.write(f"Buffer size: {len(data)} bytes\n")
+                    # audio_log.refresh()
+
+                    # Use proper audio buffer append method
+                    await connection.input_audio_buffer.append(
+                        audio=base64.b64encode(cast(Any, data)).decode("utf-8")
+                    )
+
+                    # audio_log.write(
+                    #     "[green]Audio buffer appended successfully[/green]\n" #Too many writes happening
+                    # )
+                    audio_log.refresh()
+                except Exception as e:
+                    audio_log.write(
+                        f"\n[red]Error appending to audio buffer: {str(e)}[/red]\n"
+                    )
+                    audio_log.refresh()
+                    # Don't raise the error - let the loop continue to try again
 
                 await asyncio.sleep(0)
         except KeyboardInterrupt:
@@ -748,22 +893,23 @@ class AudioChatApp(App):
                 audio_log.write("[blue]1. Committing audio buffer...[/blue]\n")
                 audio_log.refresh()
 
-                await conn.input_audio_buffer.commit()
+                # await conn.input_audio_buffer.commit()
 
-                audio_log.write(
-                    "[blue]2. Creating response with text and audio modalities...[/blue]\n"
-                )
-                audio_log.refresh()
+                # Commented out response creation to avoid connection issues
+                # audio_log.write(
+                #     "[blue]2. Creating response with text and audio modalities...[/blue]\n"
+                # )
+                # audio_log.refresh()
 
-                await conn.response.create(
-                    response={
-                        "conversation": "auto",
-                        "modalities": ["text", "audio"],
-                    }
-                )
+                # await conn.response.create(
+                #     response={
+                #         "conversation": "auto",
+                #         "modalities": ["text", "audio"],
+                #     }
+                # )
 
-                audio_log.write("[green]Response creation initiated[/green]\n")
-                audio_log.refresh()
+                # audio_log.write("[green]Response creation initiated[/green]\n")
+                # audio_log.refresh()
             else:
                 self.should_send_audio.set()
                 status_indicator.is_recording = True
@@ -815,21 +961,33 @@ def initialize_agent():
     cdp_toolkit = CdpToolkit.from_cdp_agentkit_wrapper(agentkit)
     tools = cdp_toolkit.get_tools()
     print(f"Loaded {len(tools)} CDP tools")
+    print("Available tools:", [tool.name for tool in tools])
 
     print("Setting up agent memory and config...")
     memory = MemorySaver()
-    config = {"configurable": {"thread_id": "CDP Agentkit Chatbot Example!"}}
+    config = {
+        "configurable": {
+            "thread_id": "CDP Agentkit Chatbot Example!",
+            "tools": [tool.name for tool in tools],
+            "verbose": True,
+        }
+    }
 
     state_modifier = (
-        "You are a helpful agent that can interact onchain using the Coinbase Developer Platform AgentKit. "
-        "You are empowered to interact onchain using your tools. If you ever need funds, you can request "
-        "them from the faucet if you are on network ID 'base-sepolia'. If not, you can provide your wallet "
-        "details and request funds from the user. Before executing your first action, get the wallet details "
-        "to see what network you're on. If there is a 5XX (internal) HTTP error code, ask the user to try "
-        "again later. If someone asks you to do something you can't do with your currently available tools, "
-        "you must say so, and encourage them to implement it themselves using the CDP SDK + Agentkit, "
-        "recommend they go to docs.cdp.coinbase.com for more information. Be concise and helpful with your "
-        "responses. Refrain from restating your tools' descriptions unless it is explicitly requested."
+        "You are a blockchain agent with access to CDP (Coinbase Developer Platform) tools. "
+        "IMPORTANT: You must ALWAYS use your tools when handling blockchain requests. "
+        "Here's how to handle requests:\n"
+        "1. For ANY blockchain-related request, FIRST use get_wallet_details to check the network.\n"
+        "2. If you need funds, use request_faucet_funds on base-sepolia network.\n"
+        "3. For each action, explicitly state which tool you're using and why.\n"
+        "4. If you encounter errors, provide clear explanations and retry if appropriate.\n"
+        "5. If asked to do something beyond your tools' capabilities, explain what you can't do "
+        "and suggest using the CDP SDK (docs.cdp.coinbase.com).\n\n"
+        "Remember:\n"
+        "- ALWAYS use tools for blockchain operations - don't just describe what could be done\n"
+        "- Start with get_wallet_details for ANY blockchain interaction\n"
+        "- Be direct and clear about what you're doing\n"
+        "- Show the actual results from your tool usage"
     )
 
     return (
