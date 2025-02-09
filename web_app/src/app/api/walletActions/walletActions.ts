@@ -1,12 +1,8 @@
-
 import { NextApiRequest, NextApiResponse } from 'next';
 import { PrivyClient } from '@privy-io/server-auth';
-import { usePrivy } from '@privy-io/react-auth';
 import { TransactionRequest } from '@ethersproject/abstract-provider';
 import 'dotenv/config';
 import { Console } from 'console';
-
-
 
 const privyClient = new PrivyClient(
     process.env.PRIVY_APP_ID!,
@@ -21,15 +17,6 @@ const privyClient = new PrivyClient(
 console.log(process.env.PRIVY_APP_ID);
 console.log(process.env.PRIVY_APP_SECRET);
 console.log(process.env.PRIVY_AUTHORIZATION_KEY);
-const {getAccessToken} = usePrivy();
-
-
-const accessToken = getAccessToken();
-
-
-const {user} = usePrivy();
-
-
 
 interface WalletActionRequest {
   action: 'transfer' | 'approve' | 'swap';
@@ -37,7 +24,6 @@ interface WalletActionRequest {
   recipient?: string;
   tokenAddress?: string;
 }
-
 
 export default async function handler(
   req: NextApiRequest,
@@ -56,11 +42,8 @@ export default async function handler(
 
     const { action, amount, recipient, tokenAddress } = req.body as WalletActionRequest;
 
-
     // Get user's wallet from Privy
     // const userWalletId = await privyClient.getUserByWalletAddress(user.id);
-
-
 
     // Prepare transaction based on action type
     let transaction: TransactionRequest;
@@ -80,7 +63,7 @@ export default async function handler(
 
     // Sign and send transaction using walletApi
     const response = await privyClient.walletApi.rpc({
-        walletId: user!.id,
+        walletId: userId,
         method: 'eth_sendTransaction',
         caip: 'eip155:11155111',
         params: {

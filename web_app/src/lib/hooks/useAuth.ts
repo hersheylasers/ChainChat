@@ -1,4 +1,3 @@
-// hooks/useAuth.ts
 import { useState, useEffect } from 'react';
 import { usePrivy } from '@privy-io/react-auth';
 import { UserManager } from '@/lib/auth/userManager';
@@ -11,20 +10,18 @@ export function useAuth() {
 
   useEffect(() => {
     async function loadUser() {
-      if (!privyUser) {
+      const walletAccount = privyUser?.linkedAccounts.find(acc => acc.type === 'wallet');
+      if (!walletAccount?.address) {
         setUserProfile(null);
         setLoading(false);
         return;
-
       }
 
       try {
-        const userProfile = await UserManager.getUserByEmbeddedWallet(privyUser?.linkedAccounts[0]?.address);
+        const userProfile = await UserManager.getUserByEmbeddedWallet(walletAccount.address);
         setUserProfile(userProfile);
       } catch (error) {
         console.error('Error loading user:', error);
-
-
         setUserProfile(null);
       } finally {
         setLoading(false);
@@ -35,33 +32,30 @@ export function useAuth() {
   }, [privyUser]);
 
   const login = async (email: string) => {
-    try {
+    const walletAccount = privyUser?.linkedAccounts.find(acc => acc.type === 'wallet');
+    if (!walletAccount?.address) {
+      throw new Error('No wallet connected');
+    }
 
+    try {
       let profile = await UserManager.getUserByEmail(email);
 
       if (!profile) {
-        profile = await UserManager.createUser(email);
+        profile = await UserManager.createUser(email, walletAccount.address);
       }
 
       setUserProfile(profile);
       return profile;
-
     } catch (error) {
       console.error('Login error:', error);
       throw error;
     }
   };
 
-  const logout = async () => {
-    setUserProfile(null);
-  };
-
-
   return {
     user: userProfile,
     loading,
     login,
-    logout,
-
+    logout: () => setUserProfile(null),
   };
 }

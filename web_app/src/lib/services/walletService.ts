@@ -56,4 +56,27 @@ export class WalletService {
       .single();
     return user as DbUser | null;
   }
+
+  static async getWalletBalance(walletAddress: string): Promise<string> {
+    const privyClient = await getPrivyClient();
+    const {hash} = await privyClient.walletApi.ethereum.sendTransaction({
+      walletId: walletAddress,
+      caip2: 'eip155:84532',
+      transaction: {
+        method: 'eth_getBalance',
+        params: [walletAddress, 'latest']
+      }
+    });
+
+    return hash;
+  }
+
+  static async sendTransaction(walletAddress: string, tx: { to: string; value: string }) {
+    const privyClient = await getPrivyClient();
+    return privyClient.walletApi.ethereum.sendTransaction({
+      walletId: walletAddress,
+      caip2: 'eip155:84532',
+      transaction: tx
+    });
+  }
 }
